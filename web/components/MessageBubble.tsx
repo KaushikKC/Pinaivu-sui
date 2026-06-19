@@ -3,7 +3,7 @@
 import { memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, Sparkles, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
 import clsx from 'clsx';
 import type { Message } from '@/lib/session-store';
 
@@ -70,19 +70,13 @@ export const MessageBubble = memo(function MessageBubble({ message, streaming }:
       >
         <div className="flex gap-4">
           {/* Avatar */}
-          <div
-            className={clsx(
-              'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
-              isUser
-                ? 'bg-accent/15 ring-1 ring-accent/20'
-                : 'bg-gradient-to-br from-indigo-500/20 to-purple-500/20 ring-1 ring-indigo-400/20',
-            )}
-          >
-            {isUser
-              ? <User className="w-4 h-4 text-accent" />
-              : <Sparkles className="w-4 h-4 text-indigo-400" />
-            }
-          </div>
+          {isUser ? (
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/15 ring-1 ring-accent/20 flex items-center justify-center">
+              <User className="w-4 h-4 text-accent" />
+            </div>
+          ) : (
+            <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="flex-shrink-0 w-8 h-8 rounded-full ring-1 ring-indigo-400/20" />
+          )}
 
           {/* Content */}
           <div className="flex-1 min-w-0">

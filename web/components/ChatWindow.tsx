@@ -7,7 +7,7 @@ import {
   useCallback,
   type KeyboardEvent,
 } from 'react';
-import { ArrowUp, Square, Sparkles } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import clsx from 'clsx';
 import { MessageBubble } from './MessageBubble';
 import { useStream } from '@/lib/hooks/useStream';
@@ -94,9 +94,7 @@ export function ChatWindow({ sessionId }: Props) {
         {streaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
           <div className="max-w-3xl mx-auto px-4 py-6">
             <div className="flex gap-4">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 ring-1 ring-indigo-400/20 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-              </div>
+              <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="flex-shrink-0 w-8 h-8 rounded-full ring-1 ring-indigo-400/20" />
               <div className="flex-1">
                 <div className="text-[13px] font-medium text-zinc-300 mb-2">Pinaivu</div>
                 <div className="flex items-center gap-1.5">
@@ -194,10 +192,7 @@ function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-8 px-6 animate-fade-in">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/15 to-purple-500/15
-                        ring-1 ring-indigo-400/20 flex items-center justify-center">
-          <Sparkles className="w-8 h-8 text-indigo-400" />
-        </div>
+        <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="w-16 h-16 rounded-2xl ring-1 ring-indigo-400/20" />
         <div className="text-center">
           <h2 className="text-2xl font-semibold text-zinc-100 mb-2">
             How can I help you today?

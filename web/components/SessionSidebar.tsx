@@ -86,9 +86,7 @@ export function SessionSidebar({ collapsed, onCollapse }: Props) {
       <div className="flex items-center justify-between px-3 py-3">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-accent/15 flex items-center justify-center">
-              <span className="text-accent text-xs font-bold">P</span>
-            </div>
+            <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="w-6 h-6 rounded-lg" />
             <span className="text-sm font-semibold text-zinc-100 tracking-tight">Pinaivu</span>
           </div>
         )}

@@ -4,8 +4,6 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { listSessions, createSession } from '@/lib/session-store';
-import { Sparkles } from 'lucide-react';
-
 export default function ChatIndexPage() {
   const router = useRouter();
 
@@ -22,7 +20,7 @@ export default function ChatIndexPage() {
   return (
     <AppShell>
       <div className="flex-1 flex items-center justify-center text-muted gap-3">
-        <Sparkles className="w-5 h-5 text-accent animate-pulse" />
+        <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="w-6 h-6 rounded-lg animate-pulse" />
         <span className="text-sm text-zinc-500">Loading...</span>
       </div>
     </AppShell>

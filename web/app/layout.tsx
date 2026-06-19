@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title:       'Pinaivu',
   description: 'Decentralised AI on Sui',
-  icons: { icon: '/favicon.svg' },
+  icons: { icon: '/Pinaivu_logo.jpg' },
 };
 
 export const viewport: Viewport = {
