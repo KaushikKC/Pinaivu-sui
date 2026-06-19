@@ -55,13 +55,25 @@ app.post("/v1/chat/completions", { preHandler: requireKey }, async (req: any, re
 
   // Forward to coordinator (no auth header needed — coordinator trusts gateway)
   const res = await proxyPost("/v1/chat/completions", body);
-  const data = await res.json() as Record<string, unknown>;
+  const text = await res.text();
 
-  // Record usage fire-and-forget (tokens=0 until CompletionAck)
-  const requestId = (data.request_id as string) ?? randomUUID();
+  // Pull request_id out for usage tracking only — it's a UUID string, so
+  // a normal JSON.parse is safe here. The response sent back to the
+  // client below is the *raw* text, not this parsed object: fields like
+  // dispatch_token.max_price_nanox carry u64 values (often u64::MAX as a
+  // "no cap" sentinel) that JS's Number type can't round-trip exactly —
+  // re-serializing a parsed copy silently corrupts them past u64::MAX,
+  // which the node then rejects outright.
+  let requestId = randomUUID();
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.request_id === "string") requestId = parsed.request_id;
+  } catch {
+    // not JSON (e.g. coordinator unreachable) — fall through with a fresh id
+  }
   recordDispatch(requestId, ctx, (body.model as string) ?? "unknown");
 
-  return reply.code(res.status).send(data);
+  return reply.code(res.status).type("application/json").send(text);
 });
 
 // ── Protected: GET /v1/usage ──────────────────────────────────────────────────
