@@ -1,96 +1,83 @@
-// Escrow + settlement vault for Pinaivu inference jobs.
+// Settlement vault for Pinaivu inference jobs.
 //
-// Clients deposit funds tagged with a `request_id` before submitting
-// the inference. The coordinator, after verifying a completion ack,
-// submits one or more `settle` calls — each of which authenticates a
-// coordinator-signed routing receipt and pays out the matching node.
-// If no settlement happens before the deadline, the client can pull
-// their escrow back via `refund`.
+// Holds a single shared treasury per supported coin type `T`. Pinaivu
+// tops the treasury up periodically; the coordinator settles by
+// submitting one `settle` call per payee, each authenticated by a
+// coordinator-signed routing receipt that the on-chain enclave key
+// must verify.
 //
-// Generic over the coin type `T` so the same vault contract supports
-// multiple settlement tokens (USDC, SUI, …) by parameterising at
-// publish time.
+// Generic over the coin type so the same module supports multiple
+// settlement tokens (SUI, USDC, …) by publishing one vault per type.
 
 module pinaivu::vault;
 
 use sui::balance::{Self, Balance};
-use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use sui::event;
 use sui::table::{Self, Table};
 
 use pinaivu::enclave::Enclave;
 use pinaivu::enclave::ENCLAVE;
 use pinaivu::receipts::{Self, Payout};
 
-const EAlreadyDeposited: u64 = 0;
-const EAlreadySettled: u64 = 1;
-const EInvalidReceipt: u64 = 2;
-const EPayeeNotInReceipt: u64 = 3;
-const EEscrowNotFound: u64 = 4;
-const ENotEscrowOwner: u64 = 5;
-const EDeadlineNotElapsed: u64 = 6;
-const EInsufficientEscrow: u64 = 7;
+const EAlreadySettled: u64 = 0;
+const EInvalidReceipt: u64 = 1;
+const EPayeeNotInReceipt: u64 = 2;
+const EInsufficientTreasury: u64 = 3;
 
-/// Per-request escrow record kept inside the vault.
-public struct Escrow<phantom T> has store {
-    client: address,
-    balance: Balance<T>,
-    /// Unix-millis after which the client may pull funds back if
-    /// settlement hasn't happened yet.
-    refundable_after_ms: u64,
-}
-
-/// One shared vault per settlement token type. Owned by no one;
-/// `deposit` / `settle` / `refund` are the only ways to move funds.
+/// One shared vault per settlement token type. Pinaivu funds it via
+/// `top_up`; `settle` is the only path that moves money out.
 public struct Vault<phantom T> has key {
     id: UID,
-    /// request_id (16-byte UUID, raw bytes) → escrow.
-    escrows: Table<vector<u8>, Escrow<T>>,
-    /// request_ids already settled — prevents replay of the same
-    /// receipt against a refunded or already-paid escrow.
+    treasury: Balance<T>,
+    /// (request_id ‖ payee) → settled. Prevents a single signed
+    /// payout from being replayed against the treasury more than
+    /// once. Same payee may appear in multiple request_ids; the
+    /// composite key keeps them distinct.
     settled: Table<vector<u8>, bool>,
 }
 
+public struct TreasuryToppedUp has copy, drop {
+    amount: u64,
+    new_total: u64,
+    funder: address,
+}
+
+public struct Settled has copy, drop {
+    request_id: vector<u8>,
+    payee: address,
+    amount: u64,
+    timestamp_ms: u64,
+}
+
 /// Permissionless one-time setup: creates an empty vault for token
-/// type `T` and shares it. Callers parameterise `T` per coin type they
-/// want supported (e.g. SUI, USDC, …).
+/// type `T` and shares it.
 public fun new_vault<T>(ctx: &mut TxContext) {
     let vault = Vault<T> {
         id: object::new(ctx),
-        escrows: table::new(ctx),
+        treasury: balance::zero<T>(),
         settled: table::new(ctx),
     };
     transfer::share_object(vault);
 }
 
-/// Client deposits funds for a specific request. The deadline gates
-/// when the client can pull their money back if no settlement lands.
-public fun deposit<T>(
-    vault: &mut Vault<T>,
-    request_id: vector<u8>,
-    refundable_after_ms: u64,
-    payment: Coin<T>,
-    ctx: &mut TxContext,
-) {
-    assert!(!table::contains(&vault.escrows, request_id), EAlreadyDeposited);
-    assert!(!table::contains(&vault.settled, request_id), EAlreadySettled);
-
-    let escrow = Escrow<T> {
-        client: ctx.sender(),
-        balance: coin::into_balance(payment),
-        refundable_after_ms,
-    };
-    table::add(&mut vault.escrows, request_id, escrow);
+/// Permissionless: anyone can top up the treasury (in practice Pinaivu
+/// is the only funder). Emits an event so the explorer can track the
+/// funding ledger.
+public fun top_up<T>(vault: &mut Vault<T>, payment: Coin<T>, ctx: &mut TxContext) {
+    let amount = coin::value(&payment);
+    balance::join(&mut vault.treasury, coin::into_balance(payment));
+    event::emit(TreasuryToppedUp {
+        amount,
+        new_total: balance::value(&vault.treasury),
+        funder: ctx.sender(),
+    });
 }
 
 /// Pay out `amount` to `payee` against a coordinator-signed receipt.
-/// Aborts unless:
-///   * the receipt signature verifies under the registered enclave key,
-///   * `(payee, amount)` appears in `payouts`,
-///   * the escrow has enough balance left.
-///
-/// The receipt itself may name multiple payouts; the coordinator
-/// submits one `settle` call per payee in a single PTB.
+/// Aborts unless the receipt verifies and `(payee, amount)` appears in
+/// `payouts`. The coordinator submits one `settle` call per payee in
+/// a single PTB.
 public fun settle<T>(
     vault: &mut Vault<T>,
     enclave: &Enclave<ENCLAVE>,
@@ -103,8 +90,8 @@ public fun settle<T>(
     signature: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    assert!(!table::contains(&vault.settled, request_id), EAlreadySettled);
-    assert!(table::contains(&vault.escrows, request_id), EEscrowNotFound);
+    let key = settle_key(&request_id, payee);
+    assert!(!table::contains(&vault.settled, key), EAlreadySettled);
 
     // Authenticate the receipt against the on-chain enclave key.
     let valid = receipts::verify_completion_receipt(
@@ -120,60 +107,17 @@ public fun settle<T>(
     // Confirm `(payee, amount)` is in the receipt's payout list.
     assert!(payout_matches(&payouts, payee, amount), EPayeeNotInReceipt);
 
-    let escrow = table::borrow_mut(&mut vault.escrows, request_id);
-    assert!(balance::value(&escrow.balance) >= amount, EInsufficientEscrow);
+    assert!(balance::value(&vault.treasury) >= amount, EInsufficientTreasury);
 
-    // Pay out exactly `amount` to the named address.
-    let payment = coin::from_balance(balance::split(&mut escrow.balance, amount), ctx);
+    let payment = coin::from_balance(balance::split(&mut vault.treasury, amount), ctx);
     transfer::public_transfer(payment, payee);
+    table::add(&mut vault.settled, key, true);
+
+    event::emit(Settled { request_id, payee, amount, timestamp_ms });
 }
 
-/// Mark a request as fully settled and refund any dust back to the
-/// client. The coordinator submits this once per request, after all
-/// `settle` calls for that request have landed.
-public fun finalize<T>(
-    vault: &mut Vault<T>,
-    request_id: vector<u8>,
-    ctx: &mut TxContext,
-) {
-    assert!(!table::contains(&vault.settled, request_id), EAlreadySettled);
-    assert!(table::contains(&vault.escrows, request_id), EEscrowNotFound);
-
-    let Escrow { client, balance, refundable_after_ms: _ } =
-        table::remove(&mut vault.escrows, request_id);
-
-    if (balance::value(&balance) > 0) {
-        let leftover = coin::from_balance(balance, ctx);
-        transfer::public_transfer(leftover, client);
-    } else {
-        balance::destroy_zero(balance);
-    };
-
-    table::add(&mut vault.settled, request_id, true);
-}
-
-/// Client-driven recovery path: if the deadline elapsed without any
-/// settlement landing, the client gets their full deposit back.
-public fun refund<T>(
-    vault: &mut Vault<T>,
-    request_id: vector<u8>,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    assert!(!table::contains(&vault.settled, request_id), EAlreadySettled);
-    assert!(table::contains(&vault.escrows, request_id), EEscrowNotFound);
-
-    let escrow = table::borrow(&vault.escrows, request_id);
-    assert!(escrow.client == ctx.sender(), ENotEscrowOwner);
-    let now_ms = sui::clock::timestamp_ms(clock);
-    assert!(now_ms >= escrow.refundable_after_ms, EDeadlineNotElapsed);
-
-    let Escrow { client, balance, refundable_after_ms: _ } =
-        table::remove(&mut vault.escrows, request_id);
-
-    let refund_coin = coin::from_balance(balance, ctx);
-    transfer::public_transfer(refund_coin, client);
-    table::add(&mut vault.settled, request_id, true);
+public fun treasury_balance<T>(vault: &Vault<T>): u64 {
+    balance::value(&vault.treasury)
 }
 
 // === helpers ===
@@ -190,4 +134,12 @@ fun payout_matches(payouts: &vector<Payout>, payee: address, amount: u64): bool 
         i = i + 1;
     };
     false
+}
+
+/// (request_id ‖ payee_address_bytes) as a dedupe key.
+fun settle_key(request_id: &vector<u8>, payee: address): vector<u8> {
+    let mut key = *request_id;
+    let payee_bytes = sui::address::to_bytes(payee);
+    vector::append(&mut key, payee_bytes);
+    key
 }
