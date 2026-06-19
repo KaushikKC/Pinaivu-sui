@@ -26,11 +26,10 @@ const EAlreadyDeposited: u64 = 0;
 const EAlreadySettled: u64 = 1;
 const EInvalidReceipt: u64 = 2;
 const EPayeeNotInReceipt: u64 = 3;
-const EAmountMismatch: u64 = 4;
-const EEscrowNotFound: u64 = 5;
-const ENotEscrowOwner: u64 = 6;
-const EDeadlineNotElapsed: u64 = 7;
-const EInsufficientEscrow: u64 = 8;
+const EEscrowNotFound: u64 = 4;
+const ENotEscrowOwner: u64 = 5;
+const EDeadlineNotElapsed: u64 = 6;
+const EInsufficientEscrow: u64 = 7;
 
 /// Per-request escrow record kept inside the vault.
 public struct Escrow<phantom T> has store {
