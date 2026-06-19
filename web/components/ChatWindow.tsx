@@ -2,93 +2,44 @@
 
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   useCallback,
   type KeyboardEvent,
 } from 'react';
-import { Send, StopCircle, AlertTriangle, Cpu, Lock, ShieldCheck, Network } from 'lucide-react';
+import { ArrowUp, Square, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { MessageBubble } from './MessageBubble';
 import { useStream } from '@/lib/hooks/useStream';
-import {
-  getSession,
-  appendMessage,
-  type SessionRecord,
-} from '@/lib/session-store';
-import { fetchModels, fetchPeers } from '@/lib/daemon';
+import { getSession, type SessionRecord } from '@/lib/session-store';
 
 interface Props {
   sessionId: string;
 }
 
 export function ChatWindow({ sessionId }: Props) {
-  const [session,    setSession]    = useState<SessionRecord | null>(null);
-  const [input,      setInput]      = useState('');
-  const [model,      setModel]      = useState('');
-  const [models,     setModels]     = useState<string[]>([]);
-  const [daemonDown, setDaemonDown] = useState(false);
-  const [peerCount,  setPeerCount]  = useState<number | null>(null);
+  const [session, setSession] = useState<SessionRecord | null>(null);
+  const [input,   setInput]   = useState('');
 
   const bottomRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load session from localStorage
   const reload = useCallback(() => {
     const s = getSession(sessionId);
     setSession(s);
-    if (s?.modelId) setModel(s.modelId);
   }, [sessionId]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Fetch available models from daemon; auto-select first if current model unavailable
-  useEffect(() => {
-    fetchModels()
-      .then(ms => {
-        const names = ms.map(m => m.name).filter(n => n && !n.includes('guard') && !n.includes('embed'));
-        setModels(names);
-        setModel(prev => (names.includes(prev) ? prev : (names[0] ?? prev)));
-      })
-      .catch(() => setDaemonDown(true));
-  }, []);
-
-  // Poll peer count every 10 seconds
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const { count } = await fetchPeers();
-        if (!cancelled) setPeerCount(count);
-      } catch { /* standalone or daemon down */ }
-    }
-    poll();
-    const timer = setInterval(poll, 10_000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, []);
-
-  const MAX_CONTEXT_TOKENS = 4096;
-
-  const estimatedTokens = useMemo(() => {
-    const historyChars = (session?.messages ?? []).reduce((s, m) => s + m.content.length, 0);
-    return Math.round((historyChars + input.length) / 4);
-  }, [session?.messages, input]);
-
-  const tokenPct   = Math.min((estimatedTokens / MAX_CONTEXT_TOKENS) * 100, 100);
-  const tokenColor = tokenPct >= 90 ? 'bg-red-500' : tokenPct >= 75 ? 'bg-yellow-500' : 'bg-emerald-500';
-
-  const { streaming, streamingText, error, executingNode, send, abort } = useStream(
-    session ?? { id: sessionId, modelId: model, title: '', createdAt: 0, updatedAt: 0, messages: [] },
+  const { streaming, streamingText, error, send, abort } = useStream(
+    session ?? { id: sessionId, title: '', createdAt: 0, updatedAt: 0, messages: [] },
     (updated) => setSession(updated),
   );
 
-  // Auto-scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session?.messages, streamingText]);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -100,11 +51,8 @@ export function ChatWindow({ sessionId }: Props) {
     const text = input.trim();
     if (!text || streaming || !session) return;
     setInput('');
-
-    // Reset textarea height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
-    await send(text, model);
+    await send(text);
     reload();
   }
 
@@ -118,7 +66,7 @@ export function ChatWindow({ sessionId }: Props) {
   if (!session) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted text-sm">
-        Loading…
+        Loading...
       </div>
     );
   }
@@ -128,135 +76,44 @@ export function ChatWindow({ sessionId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top bar */}
-      <div className="border-b border-surface-2 bg-surface-1 flex-shrink-0">
-        <div className="flex items-center justify-between px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-accent" />
-            {models.length > 0 ? (
-              <select
-                value={model}
-                onChange={e => setModel(e.target.value)}
-                className="text-sm bg-transparent text-white border-none outline-none cursor-pointer"
-                disabled={streaming}
-              >
-                {models.map(m => (
-                  <option key={m} value={m} className="bg-surface-2">{m}</option>
-                ))}
-              </select>
-            ) : (
-              <span className="text-sm text-white font-medium">{model}</span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Network / Standalone badge */}
-            {peerCount !== null && peerCount > 0 ? (
-              <div className="flex items-center gap-1 text-[10px] text-violet-300 font-medium">
-                <Network className="w-3 h-3" />
-                <span>{peerCount} peer{peerCount !== 1 ? 's' : ''}</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 text-[10px] text-muted font-medium">
-                <Network className="w-3 h-3" />
-                <span>Standalone</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
-              <ShieldCheck className="w-3 h-3" />
-              <span>No logs · Private</span>
-            </div>
-            <div className="flex items-center gap-1 text-[10px] text-blue-400 font-medium">
-              <Lock className="w-3 h-3" />
-              <span>AES-256-GCM</span>
-            </div>
-            <span className="text-xs text-muted font-mono">
-              {session.messages.length > 0
-                ? `${Math.ceil(session.messages.length / 2)} turn${Math.ceil(session.messages.length / 2) !== 1 ? 's' : ''}`
-                : 'new chat'}
-            </span>
-          </div>
-        </div>
-
-        {/* Token budget bar */}
-        <div className="px-4 pb-1.5 flex items-center gap-2">
-          <div className="flex-1 h-1 rounded-full bg-surface-3 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${tokenColor}`}
-              style={{ width: `${tokenPct}%` }}
-            />
-          </div>
-          <span
-            className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${
-              tokenPct >= 90 ? 'text-red-400' : tokenPct >= 75 ? 'text-yellow-400' : 'text-muted'
-            }`}
-          >
-            {estimatedTokens.toLocaleString()} / {MAX_CONTEXT_TOKENS.toLocaleString()} tok
-          </span>
-        </div>
-      </div>
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {isEmpty && (
-          <EmptyState model={model} daemonDown={daemonDown} />
-        )}
+        {isEmpty && <EmptyState onSuggestion={text => { setInput(text); textareaRef.current?.focus(); }} />}
 
-        {messages.map((msg, i) => {
-          const isLastAssistant =
-            !streaming &&
-            msg.role === 'assistant' &&
-            i === messages.length - 1;
-
-          return (
+        <div className="divide-y divide-surface-2/30">
+          {messages.map((msg) => (
             <MessageBubble
               key={msg.id}
               message={msg}
-              streaming={streaming && isLastAssistant}
+              streaming={streaming && msg.role === 'assistant' && msg === messages[messages.length - 1]}
             />
-          );
-        })}
+          ))}
+        </div>
 
-        {/* Streaming placeholder shown until the first token arrives */}
+        {/* Streaming placeholder */}
         {streaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-          <div className="flex gap-3 px-4 py-5 bg-surface-1">
-            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center">
-              <div className="flex gap-1 items-center">
-                <span className="w-1 h-1 bg-accent rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-1 h-1 bg-accent rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1 h-1 bg-accent rounded-full animate-bounce [animation-delay:300ms]" />
+          <div className="max-w-3xl mx-auto px-4 py-6">
+            <div className="flex gap-4">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 ring-1 ring-indigo-400/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
               </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-medium text-muted mb-1.5">Pinaivu</div>
-              {executingNode ? (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-                    <Network className="w-3 h-3" />
-                    <span className="font-medium">Executing on network node</span>
-                  </div>
-                  <div className="font-mono text-[10px] text-muted truncate max-w-xs">
-                    {executingNode.node_peer_id}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted">
-                    <span>{executingNode.model_id}</span>
-                    <span>·</span>
-                    <span>{executingNode.accepted_settlements[0]?.price_per_1k ?? '?'} /1k tokens</span>
-                    <span>·</span>
-                    <span>~{executingNode.estimated_latency_ms}ms</span>
-                  </div>
+              <div className="flex-1">
+                <div className="text-[13px] font-medium text-zinc-300 mb-2">Pinaivu</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-accent/60 rounded-full animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 bg-accent/60 rounded-full animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 bg-accent/60 rounded-full animate-bounce [animation-delay:300ms]" />
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400">Generating…</p>
-              )}
+              </div>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="flex items-center gap-2 mx-4 my-2 px-3 py-2 rounded-lg bg-red-900/20 border border-red-800/40 text-red-400 text-sm">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>{error}</span>
+          <div className="max-w-3xl mx-auto px-4 py-2">
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <span>{error}</span>
+            </div>
           </div>
         )}
 
@@ -264,139 +121,112 @@ export function ChatWindow({ sessionId }: Props) {
       </div>
 
       {/* Input area */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-2">
-        <div className="relative flex items-end gap-2 rounded-xl border border-surface-3
-                        bg-surface-1 focus-within:border-accent/60 transition-colors">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={streaming ? 'Generating…' : 'Send a message… (Shift+Enter for newline)'}
-            disabled={streaming || daemonDown}
-            rows={1}
-            className={clsx(
-              'flex-1 resize-none bg-transparent px-4 py-3 text-sm text-white',
-              'placeholder:text-muted outline-none max-h-[200px] min-h-[48px]',
-              (streaming || daemonDown) && 'opacity-50 cursor-not-allowed',
-            )}
-          />
+      <div className="flex-shrink-0 pb-6 pt-2 px-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="relative rounded-2xl border border-surface-3/60 bg-surface-1
+                          focus-within:border-accent/40 focus-within:ring-1 focus-within:ring-accent/10
+                          transition-all shadow-lg shadow-black/20">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Pinaivu..."
+              disabled={streaming}
+              rows={1}
+              className={clsx(
+                'w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[15px] text-zinc-100',
+                'placeholder:text-zinc-500 outline-none max-h-[200px] min-h-[56px]',
+                streaming && 'opacity-50 cursor-not-allowed',
+              )}
+            />
 
-          <div className="flex-shrink-0 pr-2 pb-2">
-            {streaming ? (
-              <button
-                onClick={abort}
-                className="p-2 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-colors"
-                title="Stop generating"
-              >
-                <StopCircle className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || daemonDown}
-                className={clsx(
-                  'p-2 rounded-lg transition-colors',
-                  input.trim() && !daemonDown
-                    ? 'bg-accent hover:bg-accent-hover text-white'
-                    : 'bg-surface-3 text-muted cursor-not-allowed',
-                )}
-                title="Send (Enter)"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            )}
+            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              {streaming ? (
+                <button
+                  onClick={abort}
+                  className="p-2 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+                  title="Stop generating"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  className={clsx(
+                    'p-2 rounded-xl transition-all',
+                    input.trim()
+                      ? 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-accent/20'
+                      : 'bg-surface-3 text-zinc-600 cursor-not-allowed',
+                  )}
+                  title="Send (Enter)"
+                >
+                  <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+
+            <div className="absolute bottom-3 left-4">
+              <span className="text-[11px] text-zinc-600">
+                Shift+Enter for new line
+              </span>
+            </div>
           </div>
-        </div>
 
-        {daemonDown && (
-          <p className="text-xs text-red-400 mt-1.5 px-1">
-            Cannot reach <code>pinaivu</code> daemon at localhost:4002.
-            Run <code className="text-accent">pinaivu start --mode standalone</code>.
+          <p className="text-[11px] text-zinc-600 text-center mt-2">
+            Pinaivu is decentralised AI on Sui. Responses may not always be accurate.
           </p>
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
+function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
+  const suggestions = [
+    { text: 'Explain how Move differs from Solidity', tag: 'Learn' },
+    { text: 'Write a Sui Move module for an NFT marketplace', tag: 'Code' },
+    { text: 'What are the benefits of decentralised AI inference?', tag: 'Explore' },
+    { text: 'Help me understand object-centric design in Sui', tag: 'Sui' },
+  ];
 
-function EmptyState({ model, daemonDown }: { model: string; daemonDown: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 px-6 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20
-                      flex items-center justify-center">
-        <Cpu className="w-8 h-8 text-accent" />
+    <div className="flex flex-col items-center justify-center h-full gap-8 px-6 animate-fade-in">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/15 to-purple-500/15
+                        ring-1 ring-indigo-400/20 flex items-center justify-center">
+          <Sparkles className="w-8 h-8 text-indigo-400" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-zinc-100 mb-2">
+            How can I help you today?
+          </h2>
+          <p className="text-zinc-500 text-sm max-w-md">
+            Decentralised, private AI inference powered by the Sui network.
+          </p>
+        </div>
       </div>
 
-      <div>
-        <h2 className="text-xl font-semibold text-white mb-1">
-          Pinaivu — Decentralised Intelligence
-        </h2>
-        <p className="text-muted text-sm max-w-sm">
-          Your conversations are end-to-end encrypted. No company logs your prompts.
-          GPU nodes bid to run your inference.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 w-full max-w-sm text-left">
-        {daemonDown ? (
-          <div className="rounded-lg border border-red-800/40 bg-red-900/10 px-4 py-3 text-sm text-red-400">
-            <span className="font-medium">Daemon offline.</span>
-            {' '}Run:{' '}
-            <code className="font-mono text-xs">pinaivu start --mode standalone</code>
-          </div>
-        ) : (
-          <>
-            {[
-              ['Explain quantum entanglement simply', 'Science'],
-              ['Write a Rust async TCP echo server', 'Code'],
-              ['Summarise the Byzantine fault tolerance problem', 'CS'],
-            ].map(([prompt, label]) => (
-              <SuggestionChip key={label} prompt={prompt} label={label} model={model} />
-            ))}
-          </>
-        )}
+      <div className="grid grid-cols-2 gap-3 w-full max-w-xl">
+        {suggestions.map(({ text, tag }) => (
+          <button
+            key={tag}
+            onClick={() => onSuggestion(text)}
+            className="group flex flex-col gap-2 rounded-xl border border-surface-3/60
+                       bg-surface-1 hover:bg-surface-2 hover:border-accent/30
+                       px-4 py-3.5 text-left transition-all"
+          >
+            <span className="text-[13px] text-zinc-300 group-hover:text-zinc-100 leading-snug">
+              {text}
+            </span>
+            <span className="text-[10px] font-medium text-zinc-600 bg-surface-2 group-hover:bg-surface-3
+                             rounded-md px-2 py-0.5 w-fit transition-colors">
+              {tag}
+            </span>
+          </button>
+        ))}
       </div>
     </div>
-  );
-}
-
-function SuggestionChip({
-  prompt,
-  label,
-  model: _model,
-}: {
-  prompt: string;
-  label:  string;
-  model:  string;
-}) {
-  return (
-    <button
-      className="flex items-center justify-between rounded-lg border border-surface-3
-                 bg-surface-1 hover:bg-surface-2 hover:border-accent/40 px-4 py-3
-                 text-sm text-left transition-colors group"
-      onClick={() => {
-        const textarea = document.querySelector('textarea');
-        if (textarea) {
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLTextAreaElement.prototype,
-            'value',
-          )?.set;
-          nativeInputValueSetter?.call(textarea, prompt);
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          textarea.focus();
-        }
-      }}
-    >
-      <span className="text-gray-300 group-hover:text-white">{prompt}</span>
-      <span className="ml-3 flex-shrink-0 text-[10px] font-medium text-muted
-                       bg-surface-3 rounded px-1.5 py-0.5">
-        {label}
-      </span>
-    </button>
   );
 }
