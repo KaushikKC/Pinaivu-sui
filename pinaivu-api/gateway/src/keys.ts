@@ -29,9 +29,13 @@ export default async function keysRoutes(app: FastifyInstance) {
   app.post("/v1/accounts", async (req, reply) => {
     verifyAdmin(req);
     const body = req.body as { email?: string; wallet_addr?: string } | null ?? {};
+    // Idempotent: re-running setup with the same email returns the existing
+    // account instead of failing on the accounts_email_key unique constraint.
     const [row] = await sql`
       INSERT INTO accounts (email, wallet_addr)
       VALUES (${body.email ?? null}, ${body.wallet_addr ?? null})
+      ON CONFLICT (email) DO UPDATE
+        SET wallet_addr = COALESCE(EXCLUDED.wallet_addr, accounts.wallet_addr)
       RETURNING id, credits_nanox, tier
     `;
     return reply.send(row);
