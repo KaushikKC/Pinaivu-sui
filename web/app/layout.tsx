@@ -2,15 +2,13 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title:       'Pinaivu — Decentralised AI',
-  description: 'Private, censorship-resistant AI inference on a decentralised GPU network',
-  icons: {
-    icon: '/favicon.svg',
-  },
+  title:       'Pinaivu',
+  description: 'Decentralised AI on Sui',
+  icons: { icon: '/favicon.svg' },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0f0f10',
+  themeColor: '#0a0a0b',
 };
 
 export default function RootLayout({

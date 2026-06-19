@@ -1,229 +1,76 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { Settings, Shield, Cpu, Network, Trash2 } from 'lucide-react';
-
-type Mode = 'standalone' | 'network' | 'network_paid';
-
-const MODE_DESCRIPTIONS: Record<Mode, string> = {
-  standalone:    'Local daemon only. No P2P, no blockchain. Best for development.',
-  network:       'P2P network with free inference. Conversations encrypted end-to-end.',
-  network_paid:  'Full decentralised network with on-chain payments. Supports EVM chains and Solana. Coming soon.',
-};
-
-function loadSavedSettings() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('deai:settings');
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
+import { Settings, Trash2, Info } from 'lucide-react';
 
 export default function SettingsPage() {
-  const [mode,       setMode]       = useState<Mode>('standalone');
-  const [nodeUrls,   setNodeUrls]   = useState('http://localhost:4002');
-  const [bidWindow,  setBidWindow]  = useState('2000');
-  const [saved,      setSaved]      = useState(false);
-
-  // Populate fields from localStorage on first render
-  useEffect(() => {
-    const s = loadSavedSettings();
-    if (!s) return;
-    if (s.mode && ['standalone', 'network', 'network_paid'].includes(s.mode)) {
-      setMode(s.mode as Mode);
-    }
-    // Support both legacy daemonUrl (string) and new nodeUrls (string[])
-    if (s.nodeUrls?.length) {
-      setNodeUrls(s.nodeUrls.join('\n'));
-    } else if (s.daemonUrl) {
-      setNodeUrls(s.daemonUrl);
-    }
-    if (s.bidWindowMs) setBidWindow(String(s.bidWindowMs));
-  }, []);
-
-  function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    const urls = nodeUrls
-      .split('\n')
-      .map(u => u.trim())
-      .filter(Boolean);
-    const primary = urls[0] ?? 'http://localhost:4002';
-    localStorage.setItem('deai:settings', JSON.stringify({
-      mode,
-      daemonUrl:   primary,
-      nodeUrls:    urls,
-      bidWindowMs: Number(bidWindow),
-    }));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  function handleClearHistory() {
-    if (confirm('Delete all local chat history? This cannot be undone.')) {
-      localStorage.removeItem('deai:sessions');
-      window.location.href = '/chat';
-    }
-  }
-
   return (
     <AppShell>
       <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
-        <h1 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+        <h1 className="text-xl font-semibold text-zinc-100 mb-8 flex items-center gap-2.5">
           <Settings className="w-5 h-5 text-accent" />
           Settings
         </h1>
 
-        <form onSubmit={handleSave} className="space-y-8">
-
-          {/* Network mode */}
-          <Section icon={<Network className="w-4 h-4" />} title="Network Mode">
-            <div className="space-y-2">
-              {(['standalone', 'network', 'network_paid'] as Mode[]).map(m => (
-                <label
-                  key={m}
-                  className={`flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors
-                    ${mode === m
-                      ? 'border-accent/60 bg-accent/5'
-                      : 'border-surface-2 bg-surface-1 hover:border-surface-3'
-                    }
-                    ${m === 'network_paid' ? 'opacity-50 cursor-not-allowed' : ''}
-                  `}
-                >
-                  <input
-                    type="radio"
-                    name="mode"
-                    value={m}
-                    checked={mode === m}
-                    onChange={() => setMode(m)}
-                    disabled={m === 'network_paid'}
-                    className="mt-0.5 accent-accent"
-                  />
-                  <div>
-                    <div className="text-sm font-medium text-white flex items-center gap-2">
-                      <code className="font-mono text-accent">{m}</code>
-                      {m === 'network_paid' && (
-                        <span className="text-[10px] border border-surface-3 rounded px-1 text-muted">coming soon</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted mt-0.5">{MODE_DESCRIPTIONS[m]}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </Section>
-
-          {/* Daemon */}
-          <Section icon={<Cpu className="w-4 h-4" />} title="Local Daemon">
-            <div className="space-y-3">
-              <Field
-                label="Node URLs"
-                hint="One URL per line. The web UI tries each in order and uses the first reachable node. Add multiple URLs for automatic failover across a cluster."
-              >
-                <textarea
-                  rows={3}
-                  value={nodeUrls}
-                  onChange={e => setNodeUrls(e.target.value)}
-                  placeholder={'http://localhost:4002\nhttp://node2:4002\nhttp://node3:4002'}
-                  className="w-full rounded-lg border border-surface-3 bg-surface-1 px-3 py-2
-                             text-sm text-white placeholder:text-muted outline-none
-                             focus:border-accent/60 transition-colors font-mono resize-none"
-                />
-              </Field>
-
-              <Field label="Bid window (ms)" hint="How long to wait for bids in network mode.">
-                <input
-                  type="number"
-                  min={100}
-                  max={5000}
-                  step={100}
-                  value={bidWindow}
-                  onChange={e => setBidWindow(e.target.value)}
-                  className="w-full rounded-lg border border-surface-3 bg-surface-1 px-3 py-2
-                             text-sm text-white outline-none focus:border-accent/60 transition-colors"
-                />
-              </Field>
-            </div>
-          </Section>
-
-          {/* Privacy */}
-          <Section icon={<Shield className="w-4 h-4" />} title="Privacy">
-            <div className="rounded-lg border border-surface-2 bg-surface-1 px-4 py-3 text-sm text-muted">
-              <p>
-                All conversations are encrypted with <strong className="text-white">AES-256-GCM</strong> before
-                leaving your device. Your session keys never leave the browser. In standalone mode,
-                sessions are stored encrypted in your browser&apos;s local storage.
-              </p>
-              <p className="mt-2 text-xs">
-                Decentralised storage and TEE node verification available in network mode.
-              </p>
-            </div>
-          </Section>
-
-          {/* Danger zone */}
-          <Section icon={<Trash2 className="w-4 h-4 text-red-400" />} title="Danger Zone">
-            <button
-              type="button"
-              onClick={handleClearHistory}
-              className="flex items-center gap-2 rounded-lg border border-red-800/40 bg-red-900/10
-                         hover:bg-red-900/20 px-4 py-2.5 text-sm text-red-400 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              Clear all chat history
-            </button>
-          </Section>
-
-          {/* Save */}
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              className="rounded-lg bg-accent hover:bg-accent-hover px-5 py-2.5 text-sm
-                         font-medium text-white transition-colors"
-            >
-              Save settings
-            </button>
-            {saved && <span className="text-sm text-green-400">Saved!</span>}
-          </div>
-        </form>
+        <div className="space-y-8">
+          <AboutSection />
+          <DangerZone />
+        </div>
       </div>
     </AppShell>
   );
 }
 
-function Section({
-  icon,
-  title,
-  children,
-}: {
-  icon:     React.ReactNode;
-  title:    string;
-  children: React.ReactNode;
-}) {
+function AboutSection() {
   return (
     <section>
-      <h2 className="flex items-center gap-2 text-sm font-medium text-muted mb-3">
-        <span className="text-accent">{icon}</span>
-        {title}
+      <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
+        <Info className="w-4 h-4 text-accent" />
+        About
       </h2>
-      {children}
+      <div className="rounded-xl border border-surface-2/60 bg-surface-1 px-5 py-4 text-sm text-zinc-400 space-y-2">
+        <p>
+          <strong className="text-zinc-200">Pinaivu</strong> is a decentralised AI inference platform
+          built on the Sui blockchain. Your conversations are processed through
+          privacy-preserving enclaves.
+        </p>
+        <p className="text-xs text-zinc-500">
+          Version 0.1.0
+        </p>
+      </div>
     </section>
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label:    string;
-  hint?:    string;
-  children: React.ReactNode;
-}) {
+function DangerZone() {
+  const [confirmed, setConfirmed] = useState(false);
+
+  function handleClearHistory() {
+    if (!confirmed) {
+      setConfirmed(true);
+      setTimeout(() => setConfirmed(false), 3000);
+      return;
+    }
+    localStorage.removeItem('pinaivu:sessions');
+    window.location.href = '/chat';
+  }
+
   return (
-    <div>
-      <label className="block text-xs text-muted mb-1.5">{label}</label>
-      {children}
-      {hint && <p className="text-[11px] text-muted mt-1">{hint}</p>}
-    </div>
+    <section>
+      <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
+        <Trash2 className="w-4 h-4 text-red-400" />
+        Danger Zone
+      </h2>
+      <button
+        type="button"
+        onClick={handleClearHistory}
+        className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5
+                   hover:bg-red-500/10 px-4 py-3 text-sm text-red-400 transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+        {confirmed ? 'Click again to confirm' : 'Clear all chat history'}
+      </button>
+    </section>
   );
 }
