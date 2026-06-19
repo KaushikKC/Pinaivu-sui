@@ -9,19 +9,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // DeAI dark theme palette
         surface: {
-          DEFAULT: '#0f0f10',
-          1: '#1a1a1c',
-          2: '#242427',
-          3: '#2e2e32',
+          DEFAULT: '#0a0a0b',
+          1: '#111113',
+          2: '#1a1a1e',
+          3: '#252529',
         },
         accent: {
-          DEFAULT: '#7c6aff',
-          hover:   '#9a8bff',
-          dim:     '#3d3480',
+          DEFAULT: '#6366f1',
+          hover:   '#818cf8',
+          dim:     '#3730a3',
         },
-        muted: '#6b7280',
+        muted: '#71717a',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -29,8 +28,9 @@ const config: Config = {
       },
       animation: {
         'blink': 'blink 1s step-end infinite',
-        'fade-in': 'fadeIn 0.2s ease-out',
-        'slide-in': 'slideIn 0.2s ease-out',
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'slide-up': 'slideUp 0.3s ease-out',
+        'pulse-slow': 'pulse 2s ease-in-out infinite',
       },
       keyframes: {
         blink: {
@@ -41,9 +41,9 @@ const config: Config = {
           from: { opacity: '0' },
           to:   { opacity: '1' },
         },
-        slideIn: {
-          from: { transform: 'translateX(-8px)', opacity: '0' },
-          to:   { transform: 'translateX(0)',    opacity: '1' },
+        slideUp: {
+          from: { transform: 'translateY(8px)', opacity: '0' },
+          to:   { transform: 'translateY(0)',   opacity: '1' },
         },
       },
     },
