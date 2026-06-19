@@ -1,0 +1,31 @@
+version: "3.9"
+
+# Local dev: Postgres + Redis shared with the coordinator.
+# Start this if you're not running the coordinator locally.
+# If running the coordinator's docker-compose already, skip this —
+# they'd conflict on the same ports.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     pinaivu
+      POSTGRES_PASSWORD: pinaivu
+      POSTGRES_DB:       pinaivu
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./gateway/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pinaivu"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pg_data:
