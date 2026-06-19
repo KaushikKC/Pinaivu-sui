@@ -1,0 +1,12 @@
+[package]
+name = "pinaivu"
+edition = "2024.beta"
+
+[dependencies]
+
+[addresses]
+pinaivu = "0x0"
+
+[dev-dependencies]
+
+[dev-addresses]
