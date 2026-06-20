@@ -20,9 +20,9 @@ use libp2p::{
 use pinaivu_protocol::mesh::{
     behaviour::{libp2p_identity_from_ed25519_secret, PinaivuBehaviour, PinaivuBehaviourEvent},
     completion_proto::{CompletionAck, CompletionResponse},
-    topics::{BIDS, INFERENCE_ANY},
+    topics::{ANNOUNCE, BIDS, INFERENCE_ANY},
 };
-use pinaivu_protocol::InferenceRequest;
+use pinaivu_protocol::{InferenceRequest, NodeCapabilities, NodePeerId};
 use tokio::sync::mpsc;
 
 use crate::bidder::{build_bid, BidConfig};
@@ -85,6 +85,11 @@ pub async fn spawn(cfg: Config) -> Result<Handle> {
         .gossipsub
         .subscribe(&IdentTopic::new(BIDS))
         .map_err(|e| anyhow!("subscribe {BIDS}: {e}"))?;
+    swarm
+        .behaviour_mut()
+        .gossipsub
+        .subscribe(&IdentTopic::new(ANNOUNCE))
+        .map_err(|e| anyhow!("subscribe {ANNOUNCE}: {e}"))?;
 
     swarm
         .listen_on(cfg.listen_addr.clone())
@@ -137,13 +142,44 @@ async fn run_event_loop(
     inflight: Arc<Inflight>,
     coord_peer: PeerId,
 ) {
-    // Track in-flight outbound completion requests so we can log their
-    // results without blocking the HTTP path.
     let mut pending_acks: std::collections::HashMap<OutboundRequestId, uuid::Uuid> =
         std::collections::HashMap::new();
+    let mut announced = false;
+    let mut announce_after: Option<tokio::time::Instant> = None;
+    let mut announce_interval = tokio::time::interval(Duration::from_secs(30));
+    announce_interval.tick().await; // consume first immediate tick
 
     loop {
+        // Check if it's time for the delayed first announce
+        if let Some(deadline) = announce_after {
+            if tokio::time::Instant::now() >= deadline {
+                announce_after = None;
+                let caps = NodeCapabilities {
+                    peer_id: NodePeerId(bid_cfg.node_peer_id.clone()),
+                    models: vec![bid_cfg.model.clone()],
+                    max_concurrent_jobs: 4,
+                };
+                if let Ok(payload) = serde_json::to_vec(&caps) {
+                    match swarm.behaviour_mut().gossipsub.publish(IdentTopic::new(ANNOUNCE), payload) {
+                        Ok(_) => { announced = true; tracing::info!("announced capabilities to coordinator"); }
+                        Err(e) => tracing::warn!(error = %e, "failed to announce capabilities"),
+                    }
+                }
+            }
+        }
+
         tokio::select! {
+            // Re-announce periodically so coordinator doesn't forget us
+            _ = announce_interval.tick(), if announced => {
+                let caps = NodeCapabilities {
+                    peer_id: NodePeerId(bid_cfg.node_peer_id.clone()),
+                    models: vec![bid_cfg.model.clone()],
+                    max_concurrent_jobs: 4,
+                };
+                if let Ok(payload) = serde_json::to_vec(&caps) {
+                    let _ = swarm.behaviour_mut().gossipsub.publish(IdentTopic::new(ANNOUNCE), payload);
+                }
+            }
             cmd = cmd_rx.recv() => {
                 let Some(cmd) = cmd else { break };
                 match cmd {
@@ -164,6 +200,9 @@ async fn run_event_loop(
                 }
                 SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                     tracing::info!(peer = %peer_id, "connection established");
+                    if peer_id == coord_peer && !announced {
+                        announce_after = Some(tokio::time::Instant::now() + Duration::from_secs(3));
+                    }
                 }
                 SwarmEvent::Behaviour(PinaivuBehaviourEvent::Gossipsub(
                     gossipsub::Event::Message { message, .. }
