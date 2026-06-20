@@ -129,15 +129,9 @@ async fn handle_inference(
         .map_err(|e| ErrorResponse::unauthorized(format!("dispatch token verify failed: {e}")))?;
 
     let request_id = req.dispatch_token.request_id;
-    let session_id = req.dispatch_token.session_id;
+    let session_id = req.session_id;
 
-    // 2. Body session_id must agree with the signed dispatch token, and
-    //    we must have bid on this request.
-    if req.session_id != session_id {
-        return Err(ErrorResponse::bad_request(
-            "session_id does not match dispatch_token.session_id",
-        ));
-    }
+    // 2. Must have bid on this request.
     if !state.inflight.contains(&request_id) {
         return Err(ErrorResponse::bad_request(
             "no matching bid for this request_id",
