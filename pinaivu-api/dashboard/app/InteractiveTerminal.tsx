@@ -67,7 +67,8 @@ export function InteractiveTerminal({ baseUrl, defaultModel }: Props) {
     }
   }
 
-  const curlCommand = `curl ${baseUrl}/v1/chat/completions \\
+  const gatewayUrl = 'https://api.pinaivu.com';
+  const curlCommand = `curl ${gatewayUrl}/v1/chat/completions \\
   -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json" \\
   -d '{
