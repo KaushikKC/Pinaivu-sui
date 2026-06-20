@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/r/{request_id}", get(get_request))
         .route("/api/nodes/{peer_id}", get(get_node))
         .route("/api/recent", get(recent))
+        .route("/api/ingest", post(ingest_receipt))
 }
 
 // ── /health ──────────────────────────────────────────────────────────────────
@@ -91,6 +92,77 @@ async fn recent(
     let limit = p.limit.clamp(1, 100);
     let rows = db::recent_receipts(&state.pool, limit, p.offset).await?;
     Ok(Json(rows))
+}
+
+// ── POST /api/ingest (local dev — insert receipt + payment) ──────────────────
+
+#[derive(Deserialize)]
+struct IngestPayload {
+    request_id: Uuid,
+    primary_peer_id: String,
+    #[serde(default)]
+    payout_address: String,
+    #[serde(default)]
+    amount_nanox: i64,
+    #[serde(default)]
+    input_tokens: u32,
+    #[serde(default)]
+    output_tokens: u32,
+    #[serde(default)]
+    latency_ms: u32,
+}
+
+async fn ingest_receipt(
+    State(state): State<AppState>,
+    Json(payload): Json<IngestPayload>,
+) -> Result<impl IntoResponse, ApiError> {
+    let receipt_json = serde_json::json!({
+        "request_id": payload.request_id,
+        "primary_peer_id": payload.primary_peer_id,
+        "helper_peer_ids": [],
+        "client_id": "",
+        "bid_set_hash": vec![0u8; 32],
+        "proof_ids": Vec::<Vec<u8>>::new(),
+        "aggregated_output_hash": vec![0u8; 32],
+        "payouts": [{
+            "sui_address": payload.payout_address,
+            "amount_nanox": payload.amount_nanox,
+        }],
+        "timestamp_ms": chrono::Utc::now().timestamp_millis(),
+        "coordinator_pubkey": vec![0u8; 32],
+        "signature": vec![0u8; 64],
+        "input_tokens": payload.input_tokens,
+        "output_tokens": payload.output_tokens,
+        "latency_ms": payload.latency_ms,
+    });
+
+    sqlx::query(
+        "INSERT INTO routing_receipts (request_id, receipt_json, created_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (request_id) DO NOTHING",
+    )
+    .bind(payload.request_id)
+    .bind(&receipt_json)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::Internal(e.into()))?;
+
+    if !payload.payout_address.is_empty() && payload.amount_nanox > 0 {
+        sqlx::query(
+            "INSERT INTO payments (request_id, payee_peer_id, payee_sui_address, amount_nanox, status)
+             VALUES ($1, $2, $3, $4, 'pending')
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(payload.request_id)
+        .bind(&payload.primary_peer_id)
+        .bind(&payload.payout_address)
+        .bind(payload.amount_nanox)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────
