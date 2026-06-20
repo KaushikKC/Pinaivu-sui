@@ -1,6 +1,16 @@
-import { redirect } from 'next/navigation';
+'use client';
 
-// Root → go to /chat
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { SessionManager } from '@/lib/zklogin/session';
+
 export default function HomePage() {
-  redirect('/chat');
+  const router = useRouter();
+
+  useEffect(() => {
+    const proof = SessionManager.getProof();
+    router.replace(proof ? '/chat' : '/login');
+  }, [router]);
+
+  return null;
 }

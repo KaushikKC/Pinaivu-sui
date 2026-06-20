@@ -11,7 +11,9 @@ import {
   PanelLeftClose,
   PanelLeft,
   Search,
+  LogOut,
 } from 'lucide-react';
+import { SessionManager as ZkSession } from '@/lib/zklogin/session';
 import clsx from 'clsx';
 import {
   listSessions,
@@ -27,8 +29,23 @@ interface Props {
 
 export function SessionSidebar({ collapsed, onCollapse }: Props) {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [zkAddress, setZkAddress] = useState<string | null>(null);
+  const [zkEmail, setZkEmail] = useState<string | null>(null);
   const router   = useRouter();
   const pathname = usePathname();
+
+  useEffect(() => {
+    const proof = ZkSession.getProof();
+    if (proof) {
+      setZkAddress(proof.address);
+      setZkEmail(proof.email ?? null);
+    }
+  }, []);
+
+  function handleLogout() {
+    ZkSession.clearAll();
+    router.replace('/login');
+  }
 
   const refresh = useCallback(() => setSessions(listSessions()), []);
 
@@ -196,6 +213,26 @@ export function SessionSidebar({ collapsed, onCollapse }: Props) {
             <Settings className="w-3.5 h-3.5 opacity-60" />
             <span>Settings</span>
           </Link>
+          {zkAddress && (
+            <div className="pt-2 mt-1 border-t border-surface-2/50">
+              <div className="px-3 py-2">
+                {zkEmail && (
+                  <p className="text-[11px] text-zinc-400 truncate">{zkEmail}</p>
+                )}
+                <p className="text-[10px] text-zinc-600 font-mono truncate" title={zkAddress}>
+                  {zkAddress.slice(0, 8)}...{zkAddress.slice(-6)}
+                </p>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-zinc-500
+                           hover:bg-red-500/10 hover:text-red-400 transition-all"
+              >
+                <LogOut className="w-3.5 h-3.5 opacity-60" />
+                <span>Sign out</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </aside>
