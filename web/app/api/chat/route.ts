@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages.length > 1
-            ? [{ role: 'user', content: messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n\n') + '\n\nRespond to the last User message above.' }]
+            ? [{ role: 'user', content: messages.map((m: { role: string; content: string }) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n\n') + '\n\nRespond to the last User message above.' }]
             : messages,
           model,
           client_pubkey_hex: DUMMY_PUBKEY,
