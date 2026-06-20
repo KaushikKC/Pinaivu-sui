@@ -98,6 +98,10 @@ export async function POST(req: NextRequest) {
           const proofRes = await fetch(`${coordinatorUrl}/v1/proofs/${requestId}`);
           if (proofRes.ok) {
             const receiptJson = await proofRes.json();
+            receiptJson.model = model;
+            receiptJson.input_tokens = reply.input_tokens ?? 0;
+            receiptJson.output_tokens = reply.output_tokens ?? 0;
+            receiptJson.latency_ms = latencyMs;
             await fetch(`${indexerUrl}/api/ingest`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

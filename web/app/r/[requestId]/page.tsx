@@ -35,6 +35,10 @@ interface ReceiptJson {
   timestamp_ms: number;
   coordinator_pubkey: number[];
   signature: number[];
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  latency_ms?: number;
 }
 
 interface Payment {
@@ -148,6 +152,9 @@ export default function InferenceDetailPage({
           <div className="lg:col-span-2 space-y-6">
             <Card title="Serving Node" icon={<Server className="w-4 h-4" />}>
               <CopyRow label="Primary Node" value={receipt.primary_peer_id} mono />
+              {receipt.model && (
+                <CopyRow label="Model" value={receipt.model} mono />
+              )}
               {receipt.helper_peer_ids?.length > 0 && (
                 <CopyRow label="Helper Nodes" value={receipt.helper_peer_ids.join(', ')} mono />
               )}
@@ -156,6 +163,13 @@ export default function InferenceDetailPage({
                   ? new Date(receipt.timestamp_ms).toLocaleString()
                   : new Date(data.receipt.created_at).toLocaleString()
               } />
+              {(receipt.input_tokens ?? 0) + (receipt.output_tokens ?? 0) > 0 && (
+                <div className="flex gap-4">
+                  {(receipt.input_tokens ?? 0) > 0 && <CopyRow label="Input Tokens" value={String(receipt.input_tokens)} />}
+                  {(receipt.output_tokens ?? 0) > 0 && <CopyRow label="Output Tokens" value={String(receipt.output_tokens)} />}
+                  {(receipt.latency_ms ?? 0) > 0 && <CopyRow label="Latency" value={`${((receipt.latency_ms ?? 0) / 1000).toFixed(1)}s`} />}
+                </div>
+              )}
             </Card>
 
             {hasRealCrypto && (
