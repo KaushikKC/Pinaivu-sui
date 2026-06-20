@@ -71,37 +71,10 @@ export default function InferenceDetailPage({
 
   useEffect(() => {
     async function load() {
-      const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
-      if (indexerUrl) {
-        try {
-          const res = await fetch(`${indexerUrl}/api/r/${requestId}`);
-          if (res.ok) {
-            setData(await res.json());
-            setLoading(false);
-            return;
-          }
-        } catch {}
-      }
-      // Fallback: try coordinator directly for receipt
       try {
-        const coordRes = await fetch(`/api/receipt/${requestId}`);
-        if (coordRes.ok) {
-          const receiptJson = await coordRes.json();
-          setData({
-            receipt: { request_id: requestId, receipt_json: receiptJson, created_at: new Date().toISOString(), walrus_blob_id: null },
-            payments: receiptJson.payouts?.map((p: Payout, i: number) => ({
-              id: `${requestId}-${i}`,
-              request_id: requestId,
-              payee_peer_id: receiptJson.primary_peer_id ?? '',
-              payee_sui_address: p.sui_address,
-              amount_nanox: p.amount_nanox,
-              status: 'submitted',
-              tx_digest: null,
-              created_at: new Date(receiptJson.timestamp_ms).toISOString(),
-              submitted_at: null,
-              confirmed_at: null,
-            })) ?? [],
-          });
+        const res = await fetch(`/api/explorer/${requestId}`);
+        if (res.ok) {
+          setData(await res.json());
         }
       } catch {}
       setLoading(false);
