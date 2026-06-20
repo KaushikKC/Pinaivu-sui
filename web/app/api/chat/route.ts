@@ -21,21 +21,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const apiKey = process.env.PINAIVU_API_KEY ?? '';
   const lastMessage = messages[messages.length - 1]?.content ?? '';
   const model = 'llama3.1:8b-instruct-q4_K_M';
 
   try {
-    // Step 1: Get dispatch from coordinator (via gateway)
+    // Step 1: Get dispatch from coordinator directly (no gateway/API key needed — this is our own frontend)
     // Retry up to 3 times — first attempt can 503 while gossipsub mesh warms up
     let dispatchRes: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       dispatchRes = await fetch(`${apiUrl}/v1/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey && { 'Authorization': `Bearer ${apiKey}` }),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages,
           model,
