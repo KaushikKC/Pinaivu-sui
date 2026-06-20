@@ -20,14 +20,6 @@ pub struct DispatchToken {
     pub issued_at_ms: u64,
     pub deadline_ms: u64,
     pub coordinator_pubkey: [u8; 32],
-    /// X25519 public key of the winning node, forwarded from its bid.
-    /// When `Some`, clients must ECDH-encrypt their prompt before
-    /// posting to `node_url/v1/inference` — use the same
-    /// `SHA-256("pinaivu-aes-key-v1" ‖ shared)` → AES-256-GCM scheme
-    /// described in the coordinator's `/v1/chat/completions` docs.
-    /// `None` means the node only accepts plaintext prompts.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub node_x25519_pubkey: Option<[u8; 32]>,
     pub signature: Vec<u8>,
 }
 
@@ -43,7 +35,6 @@ impl DispatchToken {
             issued_at_ms: u64,
             deadline_ms: u64,
             coordinator_pubkey: &'a [u8; 32],
-            node_x25519_pubkey: &'a Option<[u8; 32]>,
         }
         let canonical = Canonical {
             request_id: &self.request_id,
@@ -54,7 +45,6 @@ impl DispatchToken {
             issued_at_ms: self.issued_at_ms,
             deadline_ms: self.deadline_ms,
             coordinator_pubkey: &self.coordinator_pubkey,
-            node_x25519_pubkey: &self.node_x25519_pubkey,
         };
         serde_json::to_vec(&canonical)
             .expect("canonical serialisation is infallible for these field types")
@@ -97,7 +87,6 @@ mod tests {
             issued_at_ms: 1_700_000_000_000,
             deadline_ms: 1_700_000_005_000,
             coordinator_pubkey: [0u8; 32],
-            node_x25519_pubkey: None,
             signature: Vec::new(),
         }
     }

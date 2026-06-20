@@ -82,7 +82,6 @@ mod tests {
             reputation,
             http_endpoint: format!("http://node-{peer}.test"),
             payout_address: format!("0x{:0>62}", peer),
-            node_x25519_pubkey: None,
         }
     }
 
