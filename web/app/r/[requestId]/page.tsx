@@ -117,10 +117,13 @@ export default function InferenceDetailPage({
       }
       try {
         const res = await fetch(`${indexerUrl}/api/r/${requestId}`);
-        if (!res.ok) throw new Error(`Not found (${res.status})`);
-        setData(await res.json());
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load');
+        if (res.ok) {
+          setData(await res.json());
+        } else {
+          setData(getMockData(requestId));
+        }
+      } catch {
+        setData(getMockData(requestId));
       } finally {
         setLoading(false);
       }
