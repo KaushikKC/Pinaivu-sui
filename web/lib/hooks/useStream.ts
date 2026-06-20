@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import {
   appendMessage,
   updateLastAssistantMessage,
+  updateSessionCoordinator,
   getSession,
   type SessionRecord,
   type InferenceMetadata,
@@ -54,10 +55,15 @@ export function useStream(
           .map(m => ({ role: m.role, content: m.content }));
         messages.push({ role: 'user', content: userText });
 
+        const currentSessionData = getSession(session.id);
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({
+            messages,
+            session_id: currentSessionData?.coordinatorSessionId,
+            session_key: currentSessionData?.sessionKey,
+          }),
           signal: controller.signal,
         });
 
@@ -90,6 +96,9 @@ export function useStream(
                   latencyMs:     parsed.meta.latency_ms,
                   recalledFacts: parsed.meta.recalled_facts,
                 };
+                if (parsed.meta.session_id && parsed.meta.session_key) {
+                  updateSessionCoordinator(session.id, parsed.meta.session_id, parsed.meta.session_key);
+                }
                 continue;
               }
 

@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 const DUMMY_PUBKEY = '0'.repeat(64);
 
 export async function POST(req: NextRequest) {
-  const { messages } = await req.json();
+  const { messages, session_id, session_key } = await req.json();
 
   const apiUrl = process.env.PINAIVU_API_URL;
 
@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
           messages,
           model,
           client_pubkey_hex: DUMMY_PUBKEY,
+          ...(session_id && { session_id }),
+          ...(session_key && { session_key }),
         }),
       });
       if (res.ok) break;
@@ -131,6 +133,8 @@ export async function POST(req: NextRequest) {
         const meta = JSON.stringify({
           meta: {
             request_id: requestId,
+            session_id: reply.session_id ?? '',
+            session_key: reply.session_key ?? '',
             node_peer_id: reply.primary_peer_id ?? '',
             latency_ms: latencyMs,
             recalled_facts: reply.recalled_facts ?? [],

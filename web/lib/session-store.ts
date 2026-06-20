@@ -22,6 +22,8 @@ export interface SessionRecord {
   createdAt: number;
   updatedAt: number;
   messages:  Message[];
+  coordinatorSessionId?: string;
+  sessionKey?: string;
 }
 
 const STORAGE_KEY = 'pinaivu:sessions';
@@ -92,6 +94,18 @@ export function appendMessage(
   all[idx] = session;
   writeAll(all);
   return msg;
+}
+
+export function updateSessionCoordinator(
+  sessionId: string,
+  coordinatorSessionId: string,
+  sessionKey: string,
+): void {
+  const all = readAll();
+  const idx = all.findIndex(s => s.id === sessionId);
+  if (idx === -1) return;
+  all[idx] = { ...all[idx], coordinatorSessionId, sessionKey };
+  writeAll(all);
 }
 
 export function updateLastAssistantMessage(
