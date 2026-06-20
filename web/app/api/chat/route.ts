@@ -1,4 +1,7 @@
 import { NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
+
+const DUMMY_PUBKEY = '0'.repeat(64);
 
 export async function POST(req: NextRequest) {
   const { messages } = await req.json();
@@ -18,29 +21,169 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const upstream = await fetch(`${apiUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages,
-      stream: true,
-    }),
-  });
+  const apiKey = process.env.PINAIVU_API_KEY ?? '';
+  const lastMessage = messages[messages.length - 1]?.content ?? '';
+  const model = 'llama3.1:8b-instruct-q4_K_M';
 
-  if (!upstream.ok) {
+  try {
+    // Step 1: Get dispatch from coordinator (via gateway)
+    // Retry up to 3 times — first attempt can 503 while gossipsub mesh warms up
+    let dispatchRes: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      dispatchRes = await fetch(`${apiUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey && { 'Authorization': `Bearer ${apiKey}` }),
+        },
+        body: JSON.stringify({
+          messages,
+          model,
+          client_pubkey_hex: DUMMY_PUBKEY,
+        }),
+      });
+      if (dispatchRes.ok) break;
+      if (dispatchRes.status === 503 && attempt < 2) {
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+    }
+
+    const dispatchText = await dispatchRes.text();
+
+    if (!dispatchRes.ok) {
+      return new Response(
+        JSON.stringify({ error: `Dispatch error: ${dispatchRes.status} - ${dispatchText}` }),
+        { status: dispatchRes.status, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Extract the raw dispatch_token substring without JSON.parse round-trip
+    // to preserve u64 values (max_price_nanox = u64::MAX exceeds
+    // Number.MAX_SAFE_INTEGER and would corrupt the signature).
+    const tokenStart = dispatchText.indexOf('"dispatch_token":');
+    if (tokenStart === -1) {
+      return new Response(
+        JSON.stringify({ error: `No dispatch_token in response: ${dispatchText.slice(0, 200)}` }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    const braceStart = dispatchText.indexOf('{', tokenStart + 17);
+    let depth = 0;
+    let braceEnd = braceStart;
+    for (let i = braceStart; i < dispatchText.length; i++) {
+      if (dispatchText[i] === '{') depth++;
+      else if (dispatchText[i] === '}') { depth--; if (depth === 0) { braceEnd = i; break; } }
+    }
+    const rawDispatchToken = dispatchText.slice(braceStart, braceEnd + 1);
+
+    // Safe to parse the outer fields (strings/UUIDs, no u64 issues)
+    const nodeUrlMatch = dispatchText.match(/"node_url"\s*:\s*"([^"]+)"/);
+    const requestIdMatch = dispatchText.match(/"request_id"\s*:\s*"([^"]+)"/);
+    const sessionIdMatch = dispatchText.match(/"session_id"\s*:\s*"([^"]+)"/);
+    const peerIdMatch = rawDispatchToken.match(/"primary_peer_id"\s*:\s*"([^"]+)"/);
+
+    if (!nodeUrlMatch || !requestIdMatch) {
+      return new Response(
+        JSON.stringify({ error: `Could not parse dispatch: ${dispatchText.slice(0, 200)}` }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const nodeUrl = nodeUrlMatch[1];
+    const requestId = requestIdMatch[1];
+    const sessionId = sessionIdMatch?.[1] ?? randomUUID();
+
+    // Step 2: Call the node — raw token preserves u64 precision
+    const nodeBody = `{"new_user_message":${JSON.stringify(lastMessage)},"session_id":"${sessionId}","dispatch_token":${rawDispatchToken}}`;
+
+    const nodeRes = await fetch(`${nodeUrl}/v1/inference`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: nodeBody,
+    });
+
+    const nodeText = await nodeRes.text();
+
+    if (!nodeRes.ok) {
+      return new Response(
+        JSON.stringify({ error: `Node error: ${nodeRes.status} - ${nodeText}` }),
+        { status: nodeRes.status, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    let nodeReply;
+    try {
+      nodeReply = JSON.parse(nodeText);
+    } catch {
+      return new Response(
+        JSON.stringify({ error: `Invalid node JSON: ${nodeText.slice(0, 200)}` }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Step 3: Write receipt to local indexer DB (fire-and-forget)
+    const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
+    if (indexerUrl) {
+      fetch(`${indexerUrl}/api/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          primary_peer_id: peerIdMatch?.[1] ?? 'unknown',
+          payout_address: '',
+          amount_nanox: 0,
+          input_tokens: nodeReply.input_tokens ?? 0,
+          output_tokens: nodeReply.output_tokens ?? 0,
+          latency_ms: nodeReply.latency_ms ?? 0,
+        }),
+      }).catch(() => {});
+    }
+
+    // Step 4: Stream the response back to the client as SSE
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const content = nodeReply.content ?? '';
+        const words = content.split(' ');
+
+        for (let i = 0; i < words.length; i++) {
+          const token = (i === 0 ? '' : ' ') + words[i];
+          const chunk = JSON.stringify({
+            choices: [{ delta: { content: token } }],
+          });
+          controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
+          await new Promise(r => setTimeout(r, 15));
+        }
+
+        const meta = JSON.stringify({
+          meta: {
+            request_id: requestId,
+            node_peer_id: peerIdMatch?.[1] ?? 'unknown',
+            latency_ms: nodeReply.latency_ms ?? 0,
+            recalled_facts: [],
+          },
+        });
+        controller.enqueue(encoder.encode(`data: ${meta}\n\n`));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     return new Response(
-      JSON.stringify({ error: `Upstream error: ${upstream.status}` }),
-      { status: upstream.status, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: msg }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } },
     );
   }
-
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
-  });
 }
 
 function generateMockStream(messages: { role: string; content: string }[]): ReadableStream {
@@ -62,12 +205,14 @@ function generateMockStream(messages: { role: string; content: string }[]): Read
       }
 
       const meta = JSON.stringify({
-        request_id: crypto.randomUUID(),
-        node_peer_id: '12D3KooWMock' + Math.random().toString(36).slice(2, 10),
-        latency_ms: Math.floor(200 + Math.random() * 800),
-        recalled_facts: [],
+        meta: {
+          request_id: crypto.randomUUID(),
+          node_peer_id: '12D3KooWMock' + Math.random().toString(36).slice(2, 10),
+          latency_ms: Math.floor(200 + Math.random() * 800),
+          recalled_facts: [],
+        },
       });
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ meta: JSON.parse(meta) })}\n\n`));
+      controller.enqueue(encoder.encode(`data: ${meta}\n\n`));
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
     },
