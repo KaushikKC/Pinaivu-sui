@@ -1,11 +1,19 @@
 export type Role = 'user' | 'assistant';
 
+export interface InferenceMetadata {
+  requestId:     string;
+  nodePeerId?:   string;
+  latencyMs?:    number;
+  recalledFacts?: string[];
+}
+
 export interface Message {
   id:          string;
   role:        Role;
   content:     string;
   timestamp:   number;
   durationMs?: number;
+  inference?:  InferenceMetadata;
 }
 
 export interface SessionRecord {
@@ -89,7 +97,7 @@ export function appendMessage(
 export function updateLastAssistantMessage(
   sessionId: string,
   content:   string,
-  extra?:    Partial<Pick<Message, 'durationMs'>>,
+  extra?:    Partial<Pick<Message, 'durationMs' | 'inference'>>,
 ): void {
   const all = readAll();
   const idx = all.findIndex(s => s.id === sessionId);
