@@ -1,4 +1,5 @@
 import { enclaveHealth, listModels } from "~/lib/coordinator";
+import { InteractiveTerminal } from "./InteractiveTerminal";
 
 export const revalidate = 30;
 
@@ -66,45 +67,10 @@ export default async function OverviewPage() {
           </div>
         </div>
 
-        <div className="bg-[#0c0c0f] border border-surface-2/60 rounded-xl overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2.5 bg-surface-1 border-b border-surface-2/60">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
-            <span className="w-2.5 h-2.5 rounded-full bg-green-500/70" />
-            <span className="text-[11px] text-zinc-500 ml-2 font-mono">terminal</span>
-          </div>
-          <div className="px-5 py-4 font-mono text-[13px] leading-relaxed overflow-x-auto">
-            <p className="text-zinc-600"># Install the OpenAI SDK</p>
-            <p><span className="text-emerald-400">$ </span><span className="text-emerald-300">pip install openai</span></p>
-            <br />
-            <p className="text-zinc-600"># Python quickstart</p>
-            <p><span className="text-emerald-400">$ </span><span className="text-emerald-300">python3 &lt;&lt; &apos;EOF&apos;</span></p>
-            <pre className="text-emerald-300/90 whitespace-pre-wrap pl-4 border-l-2 border-surface-3">{`from openai import OpenAI
-
-client = OpenAI(
-    base_url="${baseUrl}/v1",
-    api_key="sk-pnv-your-key-here"
-)
-
-resp = client.chat.completions.create(
-    model="${models.data[0]?.id ?? "qwen-72b"}",
-    messages=[
-        {"role": "user", "content": "Hello!"}
-    ]
-)
-print(resp.choices[0].message.content)`}</pre>
-            <p><span className="text-emerald-400">$ </span><span className="text-emerald-300">EOF</span></p>
-            <br />
-            <p className="text-zinc-600"># Or use curl directly</p>
-            <pre className="text-emerald-300/90 whitespace-pre-wrap pl-4 border-l-2 border-surface-3">{`curl ${baseUrl}/v1/chat/completions \\
-  -H "Authorization: Bearer sk-pnv-..." \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "${models.data[0]?.id ?? "qwen-72b"}",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'`}</pre>
-          </div>
-        </div>
+        <InteractiveTerminal
+          baseUrl={baseUrl}
+          defaultModel={models.data[0]?.id ?? "gemma4-e4b-128k:latest"}
+        />
       </div>
     </div>
   );
