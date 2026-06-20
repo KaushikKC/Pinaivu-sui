@@ -56,3 +56,18 @@ export async function checkRpm(ctx: KeyContext): Promise<boolean> {
     return true; // fail open
   }
 }
+
+/** Fastify preHandler — shared by every key-protected route. */
+export async function requireKey(req: any, reply: any) {
+  const auth = req.headers["authorization"] as string | undefined;
+  const raw  = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+  if (!raw) return reply.code(401).send({ error: "Authorization header required" });
+
+  const ctx = await resolveKey(raw);
+  if (!ctx) return reply.code(401).send({ error: "Invalid or revoked API key" });
+
+  const allowed = await checkRpm(ctx);
+  if (!allowed) return reply.code(429).send({ error: "Rate limit exceeded" });
+
+  req.keyCtx = ctx;
+}
