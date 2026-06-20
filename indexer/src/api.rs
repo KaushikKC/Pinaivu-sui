@@ -99,6 +99,9 @@ async fn recent(
 #[derive(Deserialize)]
 struct IngestPayload {
     request_id: Uuid,
+    #[serde(default)]
+    receipt_json: Option<serde_json::Value>,
+    #[serde(default)]
     primary_peer_id: String,
     #[serde(default)]
     payout_address: String,
@@ -116,30 +119,21 @@ async fn ingest_receipt(
     State(state): State<AppState>,
     Json(payload): Json<IngestPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let receipt_json = serde_json::json!({
-        "request_id": payload.request_id,
-        "primary_peer_id": payload.primary_peer_id,
-        "helper_peer_ids": [],
-        "client_id": "",
-        "bid_set_hash": vec![0u8; 32],
-        "proof_ids": Vec::<Vec<u8>>::new(),
-        "aggregated_output_hash": vec![0u8; 32],
-        "payouts": [{
-            "sui_address": payload.payout_address,
-            "amount_nanox": payload.amount_nanox,
-        }],
-        "timestamp_ms": chrono::Utc::now().timestamp_millis(),
-        "coordinator_pubkey": vec![0u8; 32],
-        "signature": vec![0u8; 64],
-        "input_tokens": payload.input_tokens,
-        "output_tokens": payload.output_tokens,
-        "latency_ms": payload.latency_ms,
+    let receipt_json = payload.receipt_json.unwrap_or_else(|| {
+        serde_json::json!({
+            "request_id": payload.request_id,
+            "primary_peer_id": payload.primary_peer_id,
+            "helper_peer_ids": [],
+            "client_id": "",
+            "payouts": [],
+            "timestamp_ms": chrono::Utc::now().timestamp_millis(),
+        })
     });
 
     sqlx::query(
         "INSERT INTO routing_receipts (request_id, receipt_json, created_at)
          VALUES ($1, $2, NOW())
-         ON CONFLICT (request_id) DO NOTHING",
+         ON CONFLICT (request_id) DO UPDATE SET receipt_json = $2",
     )
     .bind(payload.request_id)
     .bind(&receipt_json)
@@ -149,8 +143,8 @@ async fn ingest_receipt(
 
     if !payload.payout_address.is_empty() && payload.amount_nanox > 0 {
         sqlx::query(
-            "INSERT INTO payments (request_id, payee_peer_id, payee_sui_address, amount_nanox, status)
-             VALUES ($1, $2, $3, $4, 'pending')
+            "INSERT INTO payments (request_id, payee_peer_id, payee_sui_address, amount_nanox, status, created_at)
+             VALUES ($1, $2, $3, $4, 'submitted', NOW())
              ON CONFLICT DO NOTHING",
         )
         .bind(payload.request_id)
