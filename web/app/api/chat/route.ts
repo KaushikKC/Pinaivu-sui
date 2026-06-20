@@ -61,6 +61,13 @@ function generateMockStream(messages: { role: string; content: string }[]): Read
         await new Promise(r => setTimeout(r, 30 + Math.random() * 40));
       }
 
+      const meta = JSON.stringify({
+        request_id: crypto.randomUUID(),
+        node_peer_id: '12D3KooWMock' + Math.random().toString(36).slice(2, 10),
+        latency_ms: Math.floor(200 + Math.random() * 800),
+        recalled_facts: [],
+      });
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ meta: JSON.parse(meta) })}\n\n`));
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
     },

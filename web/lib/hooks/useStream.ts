@@ -6,6 +6,7 @@ import {
   updateLastAssistantMessage,
   getSession,
   type SessionRecord,
+  type InferenceMetadata,
 } from '../session-store';
 
 export interface StreamState {
@@ -42,6 +43,7 @@ export function useStream(
       setState({ streaming: true, streamingText: '', error: null });
 
       let accumulated = '';
+      let inferenceData: InferenceMetadata | undefined;
       const startMs = Date.now();
 
       try {
@@ -80,6 +82,17 @@ export function useStream(
             if (data === '[DONE]') continue;
             try {
               const parsed = JSON.parse(data);
+
+              if (parsed.meta) {
+                inferenceData = {
+                  requestId:     parsed.meta.request_id,
+                  nodePeerId:    parsed.meta.node_peer_id ?? parsed.meta.primary_peer_id,
+                  latencyMs:     parsed.meta.latency_ms,
+                  recalledFacts: parsed.meta.recalled_facts,
+                };
+                continue;
+              }
+
               const token = parsed.choices?.[0]?.delta?.content ?? '';
               if (token) {
                 accumulated += token;
@@ -94,6 +107,7 @@ export function useStream(
 
         updateLastAssistantMessage(session.id, accumulated, {
           durationMs: Date.now() - startMs,
+          inference: inferenceData,
         });
         setState({ streaming: false, streamingText: '', error: null });
       } catch (err: unknown) {
