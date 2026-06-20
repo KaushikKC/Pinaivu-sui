@@ -1,0 +1,28 @@
+---
+title: Quickstart
+description: "Make your first call to the Pinaivu API"
+---
+
+## Get an API key
+
+Sign up at the [dashboard](https://api.pinaivu.com) and generate a key
+(`sk-pnv-...`).
+
+## Make a request
+
+The gateway is OpenAI-compatible — point any OpenAI SDK at
+`https://api.pinaivu.com/v1` with your Pinaivu key.
+
+```bash
+curl https://api.pinaivu.com/v1/chat/completions \
+  -H "Authorization: Bearer sk-pnv-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3.2:1b",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+The response includes a `request_id` you can paste into
+[explorer.pinaivu.com](https://explorer.pinaivu.com) to see which node
+served it, how it was paid, and the signed proof of inference.

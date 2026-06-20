@@ -1,0 +1,30 @@
+---
+title: Architecture Overview
+description: "How the coordinator, nodes, gateway, and explorer fit together"
+---
+
+## Components
+
+| Component | Role |
+| --- | --- |
+| Coordinator | Attested Nitro Enclave that brokers auctions between clients and GPU nodes, settles payment, and signs routing receipts |
+| Node | Runs the model and bids for inference jobs over libp2p |
+| Gateway (`api.pinaivu.com`) | Stateless OpenAI-compatible front door for developers |
+| chat-relayer (`chat.pinaivu.ai`) | Stateful front door for end users — adds cross-session memory |
+| Explorer (`explorer.pinaivu.com`) | Public lookup for routing receipts, payments, and node activity |
+
+## Request flow
+
+1. Client calls the gateway or chat-relayer.
+2. The coordinator runs an auction among bidding nodes and dispatches
+   the winner.
+3. The node runs inference and returns the result directly to the
+   client.
+4. The coordinator settles payment and signs a routing receipt,
+   identified by `request_id`.
+5. Anyone can fetch that receipt from the explorer.
+
+<Info>
+  This page is a starting point — replace it with real diagrams and
+  detail as the docs grow.
+</Info>
