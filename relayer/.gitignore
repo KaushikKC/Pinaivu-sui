@@ -1,8 +1,9 @@
 /target/
 /src/relayer/target/
 /src/relayer/scripts/node_modules/
-*.env
-*.env.*
+.env
+.env.*
+!.env.example
 docker-compose.yml
 *.eif
 *.pcrs
