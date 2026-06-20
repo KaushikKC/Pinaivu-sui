@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { chatUrl } from '@/lib/domains';
 import {
   ArrowLeft,
   Server,
@@ -120,7 +121,7 @@ export default function InferenceDetailPage({
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-4">
         <p className="text-zinc-400">Receipt not found yet — it may take a few seconds after inference.</p>
-        <Link href="/chat" className="text-accent hover:text-accent-hover text-sm">Back to chat</Link>
+        <a href={chatUrl()} className="text-accent hover:text-accent-hover text-sm">Back to chat</a>
       </div>
     );
   }
@@ -135,9 +136,9 @@ export default function InferenceDetailPage({
     <div className="min-h-screen bg-surface overflow-y-auto" style={{ height: '100vh' }}>
       <header className="border-b border-surface-2/50 bg-surface-1 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-4">
-          <Link href="/chat" className="p-1.5 rounded-lg hover:bg-surface-2 text-zinc-400 hover:text-white transition-colors">
+          <a href={chatUrl()} className="p-1.5 rounded-lg hover:bg-surface-2 text-zinc-400 hover:text-white transition-colors">
             <ArrowLeft className="w-4 h-4" />
-          </Link>
+          </a>
           <div className="flex items-center gap-3">
             <img src="/Pinaivu_logo.jpg" alt="Pinaivu" className="w-7 h-7 rounded-lg" />
             <div>

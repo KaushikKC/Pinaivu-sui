@@ -3,6 +3,7 @@
 import { useState, useEffect, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { chatUrl } from '@/lib/domains';
 import {
   Search,
   ArrowRight,
@@ -94,9 +95,9 @@ export default function ExplorerPage() {
               <p className="text-[10px] text-zinc-500">Inference receipts & on-chain settlements</p>
             </div>
           </div>
-          <Link href="/chat" className="text-[12px] text-accent hover:text-accent-hover transition-colors">
+          <a href={chatUrl()} className="text-[12px] text-accent hover:text-accent-hover transition-colors">
             Back to Chat
-          </Link>
+          </a>
         </div>
       </header>
 
