@@ -234,7 +234,18 @@ export default function InferenceDetailPage({
               {data.receipt.walrus_blob_id ? (
                 <>
                   <CopyRow label="Status" value="Archived" accent="green" />
-                  <CopyRow label="Blob ID" value={data.receipt.walrus_blob_id} mono />
+                  <div>
+                    <span className="text-[11px] text-zinc-500 block mb-0.5">Blob ID</span>
+                    <a
+                      href={`https://walruscan.com/testnet/blob/${data.receipt.walrus_blob_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[12px] font-mono text-accent hover:text-accent-hover transition-colors break-all flex items-center gap-1.5"
+                    >
+                      {data.receipt.walrus_blob_id}
+                      <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                    </a>
+                  </div>
                 </>
               ) : (
                 <>
