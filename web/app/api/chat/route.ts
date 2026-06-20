@@ -20,7 +20,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const model = process.env.PINAIVU_MODEL ?? 'gemma4-e4b-128k:latest';
+  let model = process.env.PINAIVU_MODEL ?? '';
+
+  // Auto-detect model from coordinator if not configured
+  if (!model) {
+    try {
+      const modelsRes = await fetch(`${apiUrl}/v1/models`);
+      if (modelsRes.ok) {
+        const modelsData = await modelsRes.json();
+        model = modelsData.data?.[0]?.id ?? '';
+      }
+    } catch {}
+  }
+
+  if (!model) {
+    return new Response(
+      JSON.stringify({ error: 'No models available. No GPU nodes are connected.' }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 
   try {
     // Single call — coordinator dispatches over libp2p and returns content directly
