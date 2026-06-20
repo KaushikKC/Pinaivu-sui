@@ -10,7 +10,7 @@ export default async function OverviewPage() {
   ]);
 
   const uptime = health ? formatUptime(health.uptime_ms) : "—";
-  const baseUrl = process.env.COORDINATOR_URL ?? "https://api.pinaivu.com";
+  const baseUrl = "https://api.pinaivu.com";
 
   return (
     <div>
