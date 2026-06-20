@@ -114,3 +114,4 @@ function safeHeaders(res: Response): Record<string, string> {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 await app.listen({ port: PORT, host: "0.0.0.0" });
 console.log(`Gateway listening on :${PORT}  →  coordinator at ${COORDINATOR_URL}`);
+
