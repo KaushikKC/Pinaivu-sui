@@ -10,6 +10,7 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  Search,
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -172,7 +173,18 @@ export function SessionSidebar({ collapsed, onCollapse }: Props) {
 
       {/* Footer */}
       {!collapsed && (
-        <div className="border-t border-surface-2/50 px-2 py-2">
+        <div className="border-t border-surface-2/50 px-2 py-2 space-y-0.5">
+          <Link
+            href="/explorer"
+            className={clsx(
+              'flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-zinc-400',
+              'hover:bg-surface-2/60 hover:text-zinc-200 transition-all',
+              pathname === '/explorer' && 'bg-surface-2 text-white',
+            )}
+          >
+            <Search className="w-3.5 h-3.5 opacity-60" />
+            <span>Explorer</span>
+          </Link>
           <Link
             href="/settings"
             className={clsx(
