@@ -49,12 +49,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const dispatchText = await dispatchRes.text();
+    const dispatchText = await dispatchRes!.text();
 
-    if (!dispatchRes.ok) {
+    if (!dispatchRes!.ok) {
       return new Response(
-        JSON.stringify({ error: `Dispatch error: ${dispatchRes.status} - ${dispatchText}` }),
-        { status: dispatchRes.status, headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: `Dispatch error: ${dispatchRes!.status} - ${dispatchText}` }),
+        { status: dispatchRes!.status, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
@@ -122,22 +122,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 3: Write receipt to local indexer DB (fire-and-forget)
+    // Step 3: Fetch real receipt from coordinator and ingest into local indexer
     const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
+    const coordinatorUrl = process.env.PINAIVU_COORDINATOR_URL ?? 'https://13.206.80.190:4000';
     if (indexerUrl) {
-      fetch(`${indexerUrl}/api/ingest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          request_id: requestId,
-          primary_peer_id: peerIdMatch?.[1] ?? 'unknown',
-          payout_address: '',
-          amount_nanox: 0,
-          input_tokens: nodeReply.input_tokens ?? 0,
-          output_tokens: nodeReply.output_tokens ?? 0,
-          latency_ms: nodeReply.latency_ms ?? 0,
-        }),
-      }).catch(() => {});
+      (async () => {
+        // Wait for coordinator to finalize the receipt
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const proofRes = await fetch(`${coordinatorUrl}/v1/proofs/${requestId}`);
+          if (proofRes.ok) {
+            const receiptJson = await proofRes.json();
+            await fetch(`${indexerUrl}/api/ingest`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                request_id: requestId,
+                receipt_json: receiptJson,
+                primary_peer_id: receiptJson.primary_peer_id ?? peerIdMatch?.[1] ?? 'unknown',
+                payout_address: receiptJson.payouts?.[0]?.sui_address ?? '',
+                amount_nanox: receiptJson.payouts?.[0]?.amount_nanox ?? 0,
+                input_tokens: nodeReply.input_tokens ?? 0,
+                output_tokens: nodeReply.output_tokens ?? 0,
+                latency_ms: nodeReply.latency_ms ?? 0,
+              }),
+            });
+          }
+        } catch {}
+      })();
     }
 
     // Step 4: Stream the response back to the client as SSE
