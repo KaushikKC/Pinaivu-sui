@@ -1,8 +1,8 @@
 'use client';
 
 import { memo, useState } from 'react';
-import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
+import { explorerUrl } from '@/lib/domains';
 import remarkGfm from 'remark-gfm';
 import { User, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
@@ -161,13 +161,13 @@ export const MessageBubble = memo(function MessageBubble({ message, streaming }:
                   </span>
                 )}
                 {inference?.requestId && (
-                  <Link
-                    href={`/r/${inference.requestId}`}
+                  <a
+                    href={explorerUrl(`/r/${inference.requestId}`)}
                     className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
                   >
                     <ExternalLink className="w-3 h-3" />
                     <span>View details</span>
-                  </Link>
+                  </a>
                 )}
               </div>
             )}

@@ -37,10 +37,8 @@ export default function ExplorerPage() {
 
   useEffect(() => {
     async function loadRecent() {
-      const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
-      if (!indexerUrl) { setLoading(false); return; }
       try {
-        const res = await fetch(`${indexerUrl}/api/recent?limit=20`);
+        const res = await fetch('/api/explorer/recent?limit=20');
         if (res.ok) setRecent(await res.json());
       } catch {}
       setLoading(false);
@@ -54,26 +52,13 @@ export default function ExplorerPage() {
     setError('');
     setSearching(true);
 
-    // Try coordinator first
     try {
-      const res = await fetch(`/api/receipt/${id}`);
+      const res = await fetch(`/api/explorer/${id}`);
       if (res.ok) {
         router.push(`/r/${id}`);
         return;
       }
     } catch {}
-
-    // Try indexer
-    const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
-    if (indexerUrl) {
-      try {
-        const res = await fetch(`${indexerUrl}/api/r/${id}`);
-        if (res.ok) {
-          router.push(`/r/${id}`);
-          return;
-        }
-      } catch {}
-    }
 
     setError('Receipt not found. Check the ID and try again.');
     setSearching(false);
