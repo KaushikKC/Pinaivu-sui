@@ -16,7 +16,6 @@ import { requireKey } from "./auth.js";
 import { recordDispatch } from "./usage.js";
 import keysRoutes from "./keys.js";
 import usageRoutes from "./usage.js";
-import relayRoutes from "./relay.js";
 import { randomUUID } from "crypto";
 
 const COORDINATOR_URL = process.env.COORDINATOR_URL ?? "https://localhost:4000";
@@ -45,11 +44,10 @@ app.post("/v1/chat/completions", { preHandler: requireKey }, async (req: any, re
 
   // Pull request_id out for usage tracking only — it's a UUID string, so
   // a normal JSON.parse is safe here. The response sent back to the
-  // client below is the *raw* text, not this parsed object: fields like
-  // dispatch_token.max_price_nanox carry u64 values (often u64::MAX as a
-  // "no cap" sentinel) that JS's Number type can't round-trip exactly —
-  // re-serializing a parsed copy silently corrupts them past u64::MAX,
-  // which the node then rejects outright.
+  // client below is still the *raw* text, not this parsed object —
+  // kept that way on principle (the coordinator's response shape has
+  // changed before and may again; re-serializing a parsed copy is an
+  // unnecessary risk for a field we don't otherwise need to touch).
   let requestId: string = randomUUID();
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -70,9 +68,6 @@ app.addHook("preHandler", async (req: any, reply) => {
 
 // ── Admin: key + account management ──────────────────────────────────────────
 await app.register(keysRoutes);
-
-// ── Server-side relay: auction + node-call in one request ────────────────────
-await app.register(relayRoutes);
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
 async function proxyGet(path: string) {
