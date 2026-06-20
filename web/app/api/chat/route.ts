@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { randomUUID } from 'crypto';
 
 const DUMMY_PUBKEY = '0'.repeat(64);
 
@@ -21,15 +20,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const lastMessage = messages[messages.length - 1]?.content ?? '';
-  const model = 'llama3.1:8b-instruct-q4_K_M';
+  const model = process.env.PINAIVU_MODEL ?? 'gemma4-e4b-128k:latest';
 
   try {
-    // Step 1: Get dispatch from coordinator directly (no gateway/API key needed — this is our own frontend)
-    // Retry up to 3 times — first attempt can 503 while gossipsub mesh warms up
-    let dispatchRes: Response | null = null;
+    // Single call — coordinator dispatches over libp2p and returns content directly
+    let res: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-      dispatchRes = await fetch(`${apiUrl}/v1/chat/completions`, {
+      res = await fetch(`${apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -38,92 +35,41 @@ export async function POST(req: NextRequest) {
           client_pubkey_hex: DUMMY_PUBKEY,
         }),
       });
-      if (dispatchRes.ok) break;
-      if (dispatchRes.status === 503 && attempt < 2) {
+      if (res.ok) break;
+      if (res.status === 503 && attempt < 2) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
       }
     }
 
-    const dispatchText = await dispatchRes!.text();
+    const text = await res!.text();
 
-    if (!dispatchRes!.ok) {
+    if (!res!.ok) {
       return new Response(
-        JSON.stringify({ error: `Dispatch error: ${dispatchRes!.status} - ${dispatchText}` }),
-        { status: dispatchRes!.status, headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: `API error: ${res!.status} - ${text}` }),
+        { status: res!.status, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
-    // Extract the raw dispatch_token substring without JSON.parse round-trip
-    // to preserve u64 values (max_price_nanox = u64::MAX exceeds
-    // Number.MAX_SAFE_INTEGER and would corrupt the signature).
-    const tokenStart = dispatchText.indexOf('"dispatch_token":');
-    if (tokenStart === -1) {
-      return new Response(
-        JSON.stringify({ error: `No dispatch_token in response: ${dispatchText.slice(0, 200)}` }),
-        { status: 502, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-    const braceStart = dispatchText.indexOf('{', tokenStart + 17);
-    let depth = 0;
-    let braceEnd = braceStart;
-    for (let i = braceStart; i < dispatchText.length; i++) {
-      if (dispatchText[i] === '{') depth++;
-      else if (dispatchText[i] === '}') { depth--; if (depth === 0) { braceEnd = i; break; } }
-    }
-    const rawDispatchToken = dispatchText.slice(braceStart, braceEnd + 1);
-
-    // Safe to parse the outer fields (strings/UUIDs, no u64 issues)
-    const nodeUrlMatch = dispatchText.match(/"node_url"\s*:\s*"([^"]+)"/);
-    const requestIdMatch = dispatchText.match(/"request_id"\s*:\s*"([^"]+)"/);
-    const sessionIdMatch = dispatchText.match(/"session_id"\s*:\s*"([^"]+)"/);
-    const peerIdMatch = rawDispatchToken.match(/"primary_peer_id"\s*:\s*"([^"]+)"/);
-
-    if (!nodeUrlMatch || !requestIdMatch) {
-      return new Response(
-        JSON.stringify({ error: `Could not parse dispatch: ${dispatchText.slice(0, 200)}` }),
-        { status: 502, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-
-    const nodeUrl = nodeUrlMatch[1];
-    const requestId = requestIdMatch[1];
-    const sessionId = sessionIdMatch?.[1] ?? randomUUID();
-
-    // Step 2: Call the node — raw token preserves u64 precision
-    const nodeBody = `{"new_user_message":${JSON.stringify(lastMessage)},"session_id":"${sessionId}","dispatch_token":${rawDispatchToken}}`;
-
-    const nodeRes = await fetch(`${nodeUrl}/v1/inference`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: nodeBody,
-    });
-
-    const nodeText = await nodeRes.text();
-
-    if (!nodeRes.ok) {
-      return new Response(
-        JSON.stringify({ error: `Node error: ${nodeRes.status} - ${nodeText}` }),
-        { status: nodeRes.status, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-
-    let nodeReply;
+    let reply;
     try {
-      nodeReply = JSON.parse(nodeText);
+      reply = JSON.parse(text);
     } catch {
       return new Response(
-        JSON.stringify({ error: `Invalid node JSON: ${nodeText.slice(0, 200)}` }),
+        JSON.stringify({ error: `Invalid response: ${text.slice(0, 200)}` }),
         { status: 502, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
-    // Step 3: Fetch real receipt from coordinator and ingest into local indexer
+    const requestId = reply.request_id ?? '';
+    const content = reply.content ?? '';
+    const latencyMs = reply.latency_ms ?? 0;
+
+    // Ingest receipt into local indexer (fire-and-forget)
     const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL;
     const coordinatorUrl = process.env.PINAIVU_COORDINATOR_URL ?? 'https://13.206.80.190:4000';
-    if (indexerUrl) {
+    if (indexerUrl && requestId) {
       (async () => {
-        // Wait for coordinator to finalize the receipt
         await new Promise(r => setTimeout(r, 3000));
         try {
           const proofRes = await fetch(`${coordinatorUrl}/v1/proofs/${requestId}`);
@@ -135,12 +81,12 @@ export async function POST(req: NextRequest) {
               body: JSON.stringify({
                 request_id: requestId,
                 receipt_json: receiptJson,
-                primary_peer_id: receiptJson.primary_peer_id ?? peerIdMatch?.[1] ?? 'unknown',
+                primary_peer_id: receiptJson.primary_peer_id ?? '',
                 payout_address: receiptJson.payouts?.[0]?.sui_address ?? '',
                 amount_nanox: receiptJson.payouts?.[0]?.amount_nanox ?? 0,
-                input_tokens: nodeReply.input_tokens ?? 0,
-                output_tokens: nodeReply.output_tokens ?? 0,
-                latency_ms: nodeReply.latency_ms ?? 0,
+                input_tokens: reply.input_tokens ?? 0,
+                output_tokens: reply.output_tokens ?? 0,
+                latency_ms: latencyMs,
               }),
             });
           }
@@ -148,11 +94,10 @@ export async function POST(req: NextRequest) {
       })();
     }
 
-    // Step 4: Stream the response back to the client as SSE
+    // Stream content back to the client as SSE
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const content = nodeReply.content ?? '';
         const words = content.split(' ');
 
         for (let i = 0; i < words.length; i++) {
@@ -167,9 +112,9 @@ export async function POST(req: NextRequest) {
         const meta = JSON.stringify({
           meta: {
             request_id: requestId,
-            node_peer_id: peerIdMatch?.[1] ?? 'unknown',
-            latency_ms: nodeReply.latency_ms ?? 0,
-            recalled_facts: [],
+            node_peer_id: reply.primary_peer_id ?? '',
+            latency_ms: latencyMs,
+            recalled_facts: reply.recalled_facts ?? [],
           },
         });
         controller.enqueue(encoder.encode(`data: ${meta}\n\n`));
@@ -235,7 +180,7 @@ function getMockResponse(input: string): string {
   }
 
   if (lower.includes('nft') && lower.includes('marketplace')) {
-    return "Here's a Sui Move module for a basic NFT marketplace:\n\n```move\nmodule marketplace::nft_market {\n    use sui::object::{Self, UID};\n    use sui::transfer;\n    use sui::tx_context::TxContext;\n    use sui::coin::Coin;\n    use sui::sui::SUI;\n\n    public struct Listing has key, store {\n        id: UID,\n        price: u64,\n        seller: address,\n    }\n\n    public fun list<T: key + store>(\n        item: T,\n        price: u64,\n        ctx: &mut TxContext,\n    ) {\n        let listing = Listing {\n            id: object::new(ctx),\n            price,\n            seller: tx_context::sender(ctx),\n        };\n        transfer::public_share_object(listing);\n        // Transfer item to marketplace escrow\n        transfer::public_transfer(item, object::uid_to_address(&listing.id));\n    }\n\n    public fun buy<T: key + store>(\n        listing: Listing,\n        payment: Coin<SUI>,\n        ctx: &mut TxContext,\n    ) {\n        let Listing { id, price, seller } = listing;\n        assert!(coin::value(&payment) >= price, 0);\n        transfer::public_transfer(payment, seller);\n        object::delete(id);\n    }\n}\n```\n\nThis demonstrates Sui Move's object model — each listing is a shared object that anyone can interact with, while the NFT itself is transferred to escrow.";
+    return "Here's a Sui Move module for a basic NFT marketplace:\n\n```move\nmodule marketplace::nft_market {\n    use sui::object::{Self, UID};\n    use sui::transfer;\n    use sui::tx_context::TxContext;\n    use sui::coin::Coin;\n    use sui::sui::SUI;\n\n    public struct Listing has key, store {\n        id: UID,\n        price: u64,\n        seller: address,\n    }\n\n    public fun list<T: key + store>(\n        item: T,\n        price: u64,\n        ctx: &mut TxContext,\n    ) {\n        let listing = Listing {\n            id: object::new(ctx),\n            price,\n            seller: tx_context::sender(ctx),\n        };\n        transfer::public_share_object(listing);\n        transfer::public_transfer(item, object::uid_to_address(&listing.id));\n    }\n\n    public fun buy<T: key + store>(\n        listing: Listing,\n        payment: Coin<SUI>,\n        ctx: &mut TxContext,\n    ) {\n        let Listing { id, price, seller } = listing;\n        assert!(coin::value(&payment) >= price, 0);\n        transfer::public_transfer(payment, seller);\n        object::delete(id);\n    }\n}\n```\n\nThis demonstrates Sui Move's object model — each listing is a shared object that anyone can interact with, while the NFT itself is transferred to escrow.";
   }
 
   if (lower.includes('decentrali') && lower.includes('ai')) {
