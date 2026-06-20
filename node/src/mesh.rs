@@ -207,7 +207,27 @@ async fn run_event_loop(
                 };
                 if let Ok(payload) = serde_json::to_vec(&caps) {
                     match swarm.behaviour_mut().gossipsub.publish(IdentTopic::new(ANNOUNCE), payload) {
-                        Ok(_) => { announced = true; tracing::info!("announced capabilities to coordinator"); }
+                        Ok(_) => {
+                            announced = true;
+                            tracing::info!("announced capabilities to coordinator");
+                            // Warm up the BIDS gossipsub mesh by publishing a
+                            // heartbeat bid. Without this the first real bid
+                            // gets dropped because the mesh isn't grafted yet.
+                            let warmup_bid = pinaivu_protocol::InferenceBid {
+                                request_id: uuid::Uuid::nil(),
+                                node_peer_id: NodePeerId(bid_cfg.node_peer_id.clone()),
+                                price_per_1k: pinaivu_protocol::NanoX(bid_cfg.price_per_1k_nanox),
+                                latency_ms: 0,
+                                reputation: 0.0,
+                                http_endpoint: bid_cfg.http_endpoint.clone(),
+                                payout_address: bid_cfg.payout_address.clone(),
+                                node_x25519_pubkey: None,
+                            };
+                            if let Ok(bid_payload) = serde_json::to_vec(&warmup_bid) {
+                                let _ = swarm.behaviour_mut().gossipsub.publish(IdentTopic::new(BIDS), bid_payload);
+                                tracing::info!("sent warmup bid to graft BIDS mesh");
+                            }
+                        }
                         Err(e) => tracing::warn!(error = %e, "failed to announce capabilities"),
                     }
                 }

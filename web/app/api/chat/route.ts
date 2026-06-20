@@ -42,11 +42,9 @@ export async function POST(req: NextRequest) {
 
   try {
     // Single call — coordinator dispatches over libp2p and returns content directly.
-    // Retry up to 5 times with increasing delay — gossipsub mesh needs a few
-    // seconds to warm up before bids arrive in time for the auction window.
+    // Retry on 503 (auction closed with no bids) as a safety net.
     let res: Response | null = null;
-    const delays = [2000, 3000, 3000, 4000];
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       res = await fetch(`${apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,8 +55,8 @@ export async function POST(req: NextRequest) {
         }),
       });
       if (res.ok) break;
-      if (res.status === 503 && attempt < 4) {
-        await new Promise(r => setTimeout(r, delays[attempt] ?? 3000));
+      if (res.status === 503 && attempt < 2) {
+        await new Promise(r => setTimeout(r, 2000));
         continue;
       }
     }
