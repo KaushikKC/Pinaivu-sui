@@ -1,13 +1,47 @@
-import { listKeys } from "~/lib/coordinator";
-import CreateKeyForm from "./CreateKeyForm";
-import RevokeButton from "./RevokeButton";
+'use client';
 
-export const revalidate = 0;
+import { useState, useEffect, useCallback } from 'react';
+import { SessionManager } from '~/lib/zklogin/session';
+import CreateKeyForm from './CreateKeyForm';
+import RevokeButton from './RevokeButton';
 
-const ACCOUNT_ID = process.env.DASHBOARD_ACCOUNT_ID ?? "";
+interface ApiKey {
+  id: string;
+  key_prefix: string;
+  name: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}
 
-export default async function KeysPage() {
-  const keys = ACCOUNT_ID ? await listKeys(ACCOUNT_ID).catch(() => []) : [];
+export default function KeysPage() {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadKeys = useCallback(async () => {
+    const proof = SessionManager.getProof();
+    if (!proof) return;
+
+    try {
+      // Find or create account by wallet address
+      const accRes = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: proof.email, wallet_addr: proof.address }),
+      });
+      if (accRes.ok) {
+        const acc = await accRes.json();
+        setAccountId(acc.id);
+
+        const keysRes = await fetch(`/api/keys?account_id=${acc.id}`);
+        if (keysRes.ok) setKeys(await keysRes.json());
+      }
+    } catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadKeys(); }, [loadKeys]);
+
+  const coordinatorUrl = process.env.NEXT_PUBLIC_COORDINATOR_URL ?? 'https://api.pinaivu.com';
 
   return (
     <div>
@@ -16,23 +50,15 @@ export default async function KeysPage() {
           <h1 className="text-2xl font-semibold text-zinc-100 mb-1">API Keys</h1>
           <p className="text-zinc-500 text-sm">One key works for all models. Pass it as a Bearer token.</p>
         </div>
-        {ACCOUNT_ID && <CreateKeyForm accountId={ACCOUNT_ID} />}
+        {accountId && <CreateKeyForm accountId={accountId} onCreated={loadKeys} />}
       </div>
-
-      {!ACCOUNT_ID && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-sm text-amber-300 mb-6">
-          Set <code className="bg-surface-2 px-1.5 rounded text-xs">DASHBOARD_ACCOUNT_ID</code> in{" "}
-          <code className="bg-surface-2 px-1.5 rounded text-xs">.env.local</code> — or go to{" "}
-          <a href="/setup" className="underline hover:text-amber-200">Setup</a> to create one.
-        </div>
-      )}
 
       <div className="bg-surface-1 border border-surface-2/60 rounded-xl px-5 py-4 mb-8">
         <p className="text-[11px] text-zinc-500 uppercase tracking-wide mb-3">How to use</p>
         <pre className="text-[13px] font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">{`from openai import OpenAI
 
 client = OpenAI(
-    base_url="${process.env.COORDINATOR_URL ?? "https://api.pinaivu.com"}/v1",
+    base_url="${coordinatorUrl}/v1",
     api_key="sk-pnv-your-key-here"
 )
 response = client.chat.completions.create(
@@ -42,7 +68,9 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)`}</pre>
       </div>
 
-      {keys.length === 0 ? (
+      {loading ? (
+        <p className="text-zinc-600 text-sm">Loading keys...</p>
+      ) : keys.length === 0 ? (
         <p className="text-zinc-600 text-sm">No keys yet. Create one above.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -63,7 +91,7 @@ print(response.choices[0].message.content)`}</pre>
                   <td className="py-3 pr-6 text-zinc-300">{k.name ?? <span className="text-zinc-600">—</span>}</td>
                   <td className="py-3 pr-6 text-zinc-500">{fmtDate(k.created_at)}</td>
                   <td className="py-3 pr-6 text-zinc-500">{k.last_used_at ? fmtDate(k.last_used_at) : <span className="text-zinc-700">Never</span>}</td>
-                  <td className="py-3"><RevokeButton keyId={k.id} /></td>
+                  <td className="py-3"><RevokeButton keyId={k.id} onRevoked={loadKeys} /></td>
                 </tr>
               ))}
             </tbody>

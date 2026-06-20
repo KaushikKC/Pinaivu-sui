@@ -1,15 +1,15 @@
-"use client";
+'use client';
 
-import { useState } from "react";
+import { useState } from 'react';
 
-export default function RevokeButton({ keyId }: { keyId: string }) {
+export default function RevokeButton({ keyId, onRevoked }: { keyId: string; onRevoked?: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
 
   async function handleRevoke() {
-    await fetch(`/api/keys/${keyId}`, { method: "DELETE" });
+    await fetch(`/api/keys/${keyId}`, { method: 'DELETE' });
     setDone(true);
-    window.location.reload();
+    onRevoked?.();
   }
 
   if (done) return <span className="text-xs text-zinc-600">Revoked</span>;
