@@ -49,7 +49,9 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages,
+          messages: messages.length > 1
+            ? [{ role: 'user', content: messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n\n') + '\n\nRespond to the last User message above.' }]
+            : messages,
           model,
           client_pubkey_hex: DUMMY_PUBKEY,
           ...(session_id && { session_id }),
