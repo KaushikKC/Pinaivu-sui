@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,6 @@ pub fn routes() -> Router<AppState> {
         .route("/api/r/{request_id}", get(get_request))
         .route("/api/nodes/{peer_id}", get(get_node))
         .route("/api/recent", get(recent))
-        .route("/api/ingest", post(ingest_receipt))
 }
 
 // ── /health ──────────────────────────────────────────────────────────────────
@@ -92,71 +91,6 @@ async fn recent(
     let limit = p.limit.clamp(1, 100);
     let rows = db::recent_receipts(&state.pool, limit, p.offset).await?;
     Ok(Json(rows))
-}
-
-// ── POST /api/ingest (local dev — insert receipt + payment) ──────────────────
-
-#[derive(Deserialize)]
-struct IngestPayload {
-    request_id: Uuid,
-    #[serde(default)]
-    receipt_json: Option<serde_json::Value>,
-    #[serde(default)]
-    primary_peer_id: String,
-    #[serde(default)]
-    payout_address: String,
-    #[serde(default)]
-    amount_nanox: i64,
-    #[serde(default)]
-    input_tokens: u32,
-    #[serde(default)]
-    output_tokens: u32,
-    #[serde(default)]
-    latency_ms: u32,
-}
-
-async fn ingest_receipt(
-    State(state): State<AppState>,
-    Json(payload): Json<IngestPayload>,
-) -> Result<impl IntoResponse, ApiError> {
-    let receipt_json = payload.receipt_json.unwrap_or_else(|| {
-        serde_json::json!({
-            "request_id": payload.request_id,
-            "primary_peer_id": payload.primary_peer_id,
-            "helper_peer_ids": [],
-            "client_id": "",
-            "payouts": [],
-            "timestamp_ms": chrono::Utc::now().timestamp_millis(),
-        })
-    });
-
-    sqlx::query(
-        "INSERT INTO routing_receipts (request_id, receipt_json, created_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (request_id) DO UPDATE SET receipt_json = $2",
-    )
-    .bind(payload.request_id)
-    .bind(&receipt_json)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::Internal(e.into()))?;
-
-    if !payload.payout_address.is_empty() && payload.amount_nanox > 0 {
-        sqlx::query(
-            "INSERT INTO payments (request_id, payee_peer_id, payee_sui_address, amount_nanox, status, created_at)
-             VALUES ($1, $2, $3, $4, 'submitted', NOW())
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(payload.request_id)
-        .bind(&payload.primary_peer_id)
-        .bind(&payload.payout_address)
-        .bind(payload.amount_nanox)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| ApiError::Internal(e.into()))?;
-    }
-
-    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────

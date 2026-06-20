@@ -12,10 +12,11 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { resolveKey, checkRpm } from "./auth.js";
+import { requireKey } from "./auth.js";
 import { recordDispatch } from "./usage.js";
 import keysRoutes from "./keys.js";
 import usageRoutes from "./usage.js";
+import relayRoutes from "./relay.js";
 import { randomUUID } from "crypto";
 
 const COORDINATOR_URL = process.env.COORDINATOR_URL ?? "https://localhost:4000";
@@ -24,21 +25,6 @@ const PORT            = Number(process.env.PORT ?? 4001);
 const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });
-
-// ── Auth hook — runs before any /v1/* route that needs a key ──────────────────
-async function requireKey(req: any, reply: any) {
-  const auth = req.headers["authorization"] as string | undefined;
-  const raw  = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-  if (!raw) return reply.code(401).send({ error: "Authorization header required" });
-
-  const ctx = await resolveKey(raw);
-  if (!ctx) return reply.code(401).send({ error: "Invalid or revoked API key" });
-
-  const allowed = await checkRpm(ctx);
-  if (!allowed) return reply.code(429).send({ error: "Rate limit exceeded" });
-
-  req.keyCtx = ctx;
-}
 
 // ── Public coordinator pass-through (no auth) ─────────────────────────────────
 for (const path of ["/health", "/enclave_health", "/get_attestation", "/v1/models", "/v1/nodes"]) {
@@ -64,7 +50,7 @@ app.post("/v1/chat/completions", { preHandler: requireKey }, async (req: any, re
   // "no cap" sentinel) that JS's Number type can't round-trip exactly —
   // re-serializing a parsed copy silently corrupts them past u64::MAX,
   // which the node then rejects outright.
-  let requestId = randomUUID();
+  let requestId: string = randomUUID();
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     if (typeof parsed.request_id === "string") requestId = parsed.request_id;
@@ -84,6 +70,9 @@ app.addHook("preHandler", async (req: any, reply) => {
 
 // ── Admin: key + account management ──────────────────────────────────────────
 await app.register(keysRoutes);
+
+// ── Server-side relay: auction + node-call in one request ────────────────────
+await app.register(relayRoutes);
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
 async function proxyGet(path: string) {
@@ -114,3 +103,4 @@ function safeHeaders(res: Response): Record<string, string> {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 await app.listen({ port: PORT, host: "0.0.0.0" });
 console.log(`Gateway listening on :${PORT}  →  coordinator at ${COORDINATOR_URL}`);
+

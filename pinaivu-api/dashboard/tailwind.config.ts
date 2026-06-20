@@ -5,22 +5,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        surface: {
-          DEFAULT: "#0a0a0b",
-          1: "#111113",
-          2: "#1a1a1e",
-          3: "#252529",
-        },
-        accent: {
+        brand: {
           DEFAULT: "#6366f1",
-          hover: "#818cf8",
-          dim: "#3730a3",
+          dark: "#4f46e5",
         },
-        muted: "#71717a",
-      },
-      fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
       },
     },
   },

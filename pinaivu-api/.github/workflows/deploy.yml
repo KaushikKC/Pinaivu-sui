@@ -1,0 +1,134 @@
+name: Deploy Gateway
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "gateway/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-gateway
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Copy source to EC2 ────────────────────────────────────────────────
+      # Plain Node service (no enclave) — runs on the same host as the
+      # coordinator, on its own port, behind the coordinator's nitro bridges.
+      - name: Copy source to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PINAIVU_EC2_HOST }}
+          username: ${{ secrets.PINAIVU_EC2_USER }}
+          key: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
+          source: "gateway/src,gateway/package.json,gateway/package-lock.json,gateway/tsconfig.json"
+          target: "~/pinaivu-gateway/"
+          strip_components: 1
+          overwrite: true
+          rm: false
+
+      # ── Write env file to EC2 ─────────────────────────────────────────────
+      # GATEWAY_ENV_FILE is a single GitHub secret containing the full
+      # contents of the gateway's runtime .env (DATABASE_URL, REDIS_URL,
+      # COORDINATOR_URL, ADMIN_SECRET, PORT). Settings → Secrets → GATEWAY_ENV_FILE.
+      - name: Write env file to EC2
+        env:
+          EC2_HOST: ${{ secrets.PINAIVU_EC2_HOST }}
+          EC2_USER: ${{ secrets.PINAIVU_EC2_USER }}
+          EC2_KEY: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
+          GATEWAY_ENV_FILE: ${{ secrets.GATEWAY_ENV_FILE }}
+        run: |
+          echo "$EC2_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          printf '%s' "$GATEWAY_ENV_FILE" | \
+            ssh -o StrictHostKeyChecking=no \
+                -o ServerAliveInterval=30 \
+                -i /tmp/deploy_key \
+                "$EC2_USER@$EC2_HOST" \
+                "cat > ~/pinaivu-gateway/.env && chmod 600 ~/pinaivu-gateway/.env"
+          rm -f /tmp/deploy_key
+
+      # ── Install deps + build ──────────────────────────────────────────────
+      - name: Install dependencies and build
+        env:
+          EC2_HOST: ${{ secrets.PINAIVU_EC2_HOST }}
+          EC2_USER: ${{ secrets.PINAIVU_EC2_USER }}
+          EC2_KEY: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
+        run: |
+          echo "$EC2_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          SSH="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i /tmp/deploy_key $EC2_USER@$EC2_HOST"
+          $SSH 'bash -s' << 'REMOTE'
+          set -e
+          if ! command -v node &> /dev/null; then
+            if command -v dnf &> /dev/null; then
+              sudo dnf install -y nodejs
+            elif command -v apt-get &> /dev/null; then
+              sudo apt-get update -y
+              sudo apt-get install -y nodejs npm
+            else
+              sudo yum install -y nodejs
+            fi
+          fi
+          node --version
+          cd ~/pinaivu-gateway
+          npm ci
+          npm run build
+          REMOTE
+          rm -f /tmp/deploy_key
+
+      # ── Install/refresh systemd unit + restart ────────────────────────────
+      - name: Install systemd unit and restart
+        env:
+          EC2_HOST: ${{ secrets.PINAIVU_EC2_HOST }}
+          EC2_USER: ${{ secrets.PINAIVU_EC2_USER }}
+          EC2_KEY: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
+        run: |
+          echo "$EC2_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          SSH="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i /tmp/deploy_key $EC2_USER@$EC2_HOST"
+          $SSH 'bash -s' << 'REMOTE'
+          set -e
+          USER_NAME=$(whoami)
+          printf '[Unit]\nDescription=Pinaivu API gateway\nAfter=network.target\n[Service]\nType=simple\nUser=%s\nWorkingDirectory=/home/%s/pinaivu-gateway\nEnvironmentFile=/home/%s/pinaivu-gateway/.env\nExecStart=/usr/bin/node /home/%s/pinaivu-gateway/dist/server.js\nRestart=always\nRestartSec=2\n[Install]\nWantedBy=multi-user.target\n' \
+            "$USER_NAME" "$USER_NAME" "$USER_NAME" "$USER_NAME" \
+            | sudo tee /etc/systemd/system/pinaivu-gateway.service > /dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now pinaivu-gateway.service
+          sudo systemctl restart pinaivu-gateway.service
+          sleep 2
+          sudo systemctl is-active pinaivu-gateway.service
+          REMOTE
+          rm -f /tmp/deploy_key
+
+      # ── Health check ──────────────────────────────────────────────────────
+      - name: Verify health
+        env:
+          EC2_HOST: ${{ secrets.PINAIVU_EC2_HOST }}
+          EC2_USER: ${{ secrets.PINAIVU_EC2_USER }}
+          EC2_KEY: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
+        run: |
+          echo "$EC2_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          SSH="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i /tmp/deploy_key $EC2_USER@$EC2_HOST"
+          $SSH 'bash -s' << 'REMOTE'
+          set -e
+          PORT=$(grep -E '^PORT=' ~/pinaivu-gateway/.env | cut -d= -f2)
+          PORT="${PORT:-4001}"
+          for i in $(seq 1 10); do
+            if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
+              echo "Gateway healthy on :${PORT}"
+              exit 0
+            fi
+            echo "Waiting for gateway... (attempt $i/10)"
+            sleep 3
+          done
+          echo "ERROR: gateway health check failed"
+          sudo journalctl -u pinaivu-gateway.service --no-pager -n 100
+          exit 1
+          REMOTE
+          rm -f /tmp/deploy_key

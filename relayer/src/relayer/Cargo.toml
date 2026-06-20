@@ -11,14 +11,16 @@ path = "src/main.rs"
 
 [dependencies]
 # Nautilus TEE — attestation, ephemeral keypair, NSM entropy.
-# Path dep during local dev; the enclave Containerfile copies the
-# source into the image at build time.
-nautilus-enclave = { path = "../../../coordinator  /src/nautilus-enclave" }
+# Owned copy, vendored in-repo — chat-relayer no longer depends on a
+# sibling coordinator checkout (separate EC2 instances, separate repos).
+nautilus-enclave = { path = "../nautilus-enclave" }
 
 # Shared wire types — DispatchToken, ChatMessage, NodePeerId, …
-# Reused so the chat-relayer's outbound calls to pinaivu-api + the node
-# stay in lockstep with the coordinator's schema.
-pinaivu-protocol = { path = "../../../coordinator  /src/pinaivu-protocol" }
+# Owned copy, vendored in-repo. NOTE: this is a fork, not a live link to
+# the coordinator's schema — if the coordinator's wire format changes,
+# this copy must be updated by hand or DispatchToken verification will
+# silently drift out of sync.
+pinaivu-protocol = { path = "../pinaivu-protocol" }
 
 # Web framework
 axum = { version = "0.8", features = ["macros"] }
@@ -29,6 +31,11 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # HTTP client (TS sidecar + pinaivu-api + node + Sui RPC)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Direct dep so we can explicitly install a process-wide CryptoProvider at
+# startup — reqwest/sqlx/redis pull in both ring and aws-lc-rs transitively,
+# and rustls refuses to auto-select when more than one backend is present.
+rustls = "0.23"
 
 # Database — Postgres + pgvector for the chat-relayer's own memory store.
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
