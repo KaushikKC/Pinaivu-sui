@@ -13,6 +13,8 @@ use super::VerifyError;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DispatchToken {
     pub request_id: RequestId,
+    #[serde(default)]
+    pub session_id: Option<RequestId>,
     pub client_pubkey: [u8; 32],
     pub primary_peer_id: NodePeerId,
     pub settlement_id: String,
@@ -20,12 +22,6 @@ pub struct DispatchToken {
     pub issued_at_ms: u64,
     pub deadline_ms: u64,
     pub coordinator_pubkey: [u8; 32],
-    /// X25519 public key of the winning node, forwarded from its bid.
-    /// When `Some`, clients must ECDH-encrypt their prompt before
-    /// posting to `node_url/v1/inference` — use the same
-    /// `SHA-256("pinaivu-aes-key-v1" ‖ shared)` → AES-256-GCM scheme
-    /// described in the coordinator's `/v1/chat/completions` docs.
-    /// `None` means the node only accepts plaintext prompts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_x25519_pubkey: Option<[u8; 32]>,
     pub signature: Vec<u8>,
@@ -36,6 +32,8 @@ impl DispatchToken {
         #[derive(Serialize)]
         struct Canonical<'a> {
             request_id: &'a RequestId,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            session_id: &'a Option<RequestId>,
             client_pubkey: &'a [u8; 32],
             primary_peer_id: &'a NodePeerId,
             settlement_id: &'a String,
@@ -47,6 +45,7 @@ impl DispatchToken {
         }
         let canonical = Canonical {
             request_id: &self.request_id,
+            session_id: &self.session_id,
             client_pubkey: &self.client_pubkey,
             primary_peer_id: &self.primary_peer_id,
             settlement_id: &self.settlement_id,
