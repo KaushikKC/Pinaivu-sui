@@ -1,9 +1,10 @@
 'use client';
 
 import { memo, useState } from 'react';
+import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { User, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
 import type { Message } from '@/lib/session-store';
 
@@ -60,6 +61,8 @@ export const MessageBubble = memo(function MessageBubble({ message, streaming }:
     ? { thinking: '', answer: message.content, inThink: false }
     : parseContent(message.content);
 
+  const inference = message.inference;
+
   return (
     <div className="animate-fade-in">
       <div
@@ -85,7 +88,22 @@ export const MessageBubble = memo(function MessageBubble({ message, streaming }:
               <span className="text-[13px] font-medium text-zinc-300">
                 {isUser ? 'You' : 'Pinaivu'}
               </span>
+              {!isUser && inference?.nodePeerId && !streaming && (
+                <span className="text-[10px] text-zinc-600 font-mono">
+                  via {inference.nodePeerId.slice(0, 16)}…
+                </span>
+              )}
             </div>
+
+            {/* Recalled facts */}
+            {!isUser && inference?.recalledFacts && inference.recalledFacts.length > 0 && (
+              <div className="mb-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg px-3 py-2">
+                <p className="text-[10px] text-indigo-400 font-medium mb-1">Memory recalled</p>
+                {inference.recalledFacts.map((fact, i) => (
+                  <p key={i} className="text-[12px] text-zinc-400 leading-relaxed">{fact}</p>
+                ))}
+              </div>
+            )}
 
             {/* Thinking block */}
             {!isUser && (thinking || inThink) && (
@@ -141,6 +159,15 @@ export const MessageBubble = memo(function MessageBubble({ message, streaming }:
                   <span className="text-[11px] text-muted">
                     {formatDuration(message.durationMs)}
                   </span>
+                )}
+                {inference?.requestId && (
+                  <Link
+                    href={`/r/${inference.requestId}`}
+                    className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>View details</span>
+                  </Link>
                 )}
               </div>
             )}
