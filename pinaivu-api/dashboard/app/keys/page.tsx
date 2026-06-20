@@ -17,26 +17,35 @@ export default function KeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const loadKeys = useCallback(async () => {
     const proof = SessionManager.getProof();
-    if (!proof) return;
+    if (!proof) { setLoading(false); return; }
 
     try {
-      // Find or create account by wallet address
       const accRes = await fetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: proof.email, wallet_addr: proof.address }),
       });
-      if (accRes.ok) {
-        const acc = await accRes.json();
-        setAccountId(acc.id);
-
-        const keysRes = await fetch(`/api/keys?account_id=${acc.id}`);
-        if (keysRes.ok) setKeys(await keysRes.json());
+      if (!accRes.ok) {
+        const errText = await accRes.text();
+        setError(`Account setup failed: ${errText}`);
+        setLoading(false);
+        return;
       }
-    } catch {} finally { setLoading(false); }
+      const acc = await accRes.json();
+      if (acc.error) {
+        setError(`Account error: ${acc.error}`);
+        setLoading(false);
+        return;
+      }
+      setAccountId(acc.id);
+
+      const keysRes = await fetch(`/api/keys?account_id=${acc.id}`);
+      if (keysRes.ok) setKeys(await keysRes.json());
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load'); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadKeys(); }, [loadKeys]);
@@ -67,6 +76,12 @@ response = client.chat.completions.create(
 )
 print(response.choices[0].message.content)`}</pre>
       </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400 mb-6">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-zinc-600 text-sm">Loading keys...</p>
