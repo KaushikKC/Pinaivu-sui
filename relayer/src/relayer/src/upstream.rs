@@ -15,7 +15,6 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct UpstreamClient {
     pinaivu_api_base: String,
-    pinaivu_api_key: String,
     http: reqwest::Client,
 }
 
@@ -68,7 +67,7 @@ pub struct NodeReply {
 }
 
 impl UpstreamClient {
-    pub fn new(pinaivu_api_base: String, pinaivu_api_key: String) -> Self {
+    pub fn new(pinaivu_api_base: String) -> Self {
         // Accept invalid TLS in dev (matches the INSECURE_COORDINATOR
         // gate used by the node binary).
         let insecure = std::env::var("INSECURE_COORDINATOR")
@@ -81,7 +80,6 @@ impl UpstreamClient {
             .expect("build reqwest client");
         Self {
             pinaivu_api_base,
-            pinaivu_api_key,
             http,
         }
     }
@@ -94,7 +92,6 @@ impl UpstreamClient {
         let resp = self
             .http
             .post(&url)
-            .bearer_auth(&self.pinaivu_api_key)
             .json(body)
             .send()
             .await

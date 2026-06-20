@@ -12,7 +12,7 @@ concurrency:
 env:
   APP_DIR: pinaivu-relayer
   ENCLAVE_CPU: 2
-  ENCLAVE_MEM: 4096
+  ENCLAVE_MEM: 2048
   HTTP_VSOCK_PORT: 4002
   CONFIG_VSOCK_PORT: 7000
   POSTGRES_VSOCK_PORT: 8101
@@ -62,35 +62,6 @@ jobs:
                 -i /tmp/deploy_key \
                 "$EC2_USER@$EC2_HOST" \
                 "cat > ~/.env.relayer.runtime && chmod 600 ~/.env.relayer.runtime"
-          rm -f /tmp/deploy_key
-
-      # ── Install deps ──────────────────────────────────────────────────────
-      # First-time setup for a fresh instance — docker, nitro-cli, socat, jq.
-      # Idempotent: skips anything already installed.
-      - name: Install dependencies
-        env:
-          EC2_HOST: ${{ secrets.PINAIVU_EC2_HOST }}
-          EC2_USER: ${{ secrets.PINAIVU_EC2_USER }}
-          EC2_KEY: ${{ secrets.PINAIVU_EC2_SSH_KEY }}
-        run: |
-          echo "$EC2_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
-          SSH="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i /tmp/deploy_key $EC2_USER@$EC2_HOST"
-          $SSH 'bash -s' << 'REMOTE'
-          set -e
-          if command -v dnf &> /dev/null; then PKG="sudo dnf"; else PKG="sudo yum"; fi
-          if ! command -v docker &> /dev/null; then
-            $PKG install -y docker || (curl -fsSL https://get.docker.com | sudo sh)
-            sudo systemctl start docker && sudo systemctl enable docker
-            sudo usermod -aG docker $USER
-          fi
-          if ! command -v nitro-cli &> /dev/null; then
-            $PKG install -y aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel
-            sudo usermod -aG ne $USER
-          fi
-          command -v socat &> /dev/null || $PKG install -y socat
-          command -v jq    &> /dev/null || $PKG install -y jq
-          echo "Dependencies ready"
-          REMOTE
           rm -f /tmp/deploy_key
 
       # ── Build EIF on EC2 ──────────────────────────────────────────────────
@@ -158,31 +129,15 @@ jobs:
           done
 
           # Only terminate THIS enclave, not the coordinator's — find it by
-          # EnclaveName (set from the EIF at build time) so a shared host
-          # doesn't accidentally kill the coordinator's running enclave.
-          # Note: this nitro-cli version doesn't include EIFPath in
-          # describe-enclaves output at all, so match on EnclaveName instead.
+          # the relayer's distinctive EIF path so a shared host doesn't
+          # accidentally kill the coordinator's running enclave.
           RELAYER_EID=$(sudo nitro-cli describe-enclaves \
-            | jq -r '.[] | select(.EnclaveCID != null) | select(.EnclaveName == "chat-relayer") | .EnclaveID' \
+            | jq -r '.[] | select(.EnclaveCID != null) | select(.EIFPath | test("chat-relayer")) | .EnclaveID' \
             | head -1)
           if [ -n "$RELAYER_EID" ]; then
             sudo nitro-cli terminate-enclave --enclave-id "$RELAYER_EID" || true
           fi
           sleep 5
-
-          # Same allocator setup as the coordinator's deploy.yml, same
-          # sizing (4096 MiB / 2 vCPUs) — first run on a fresh instance:
-          # the allocator service isn't configured/enabled at all yet.
-          echo 3 | sudo tee /proc/sys/vm/drop_caches   > /dev/null
-          echo 1 | sudo tee /proc/sys/vm/compact_memory > /dev/null
-          sleep 3
-          ALLOC=/etc/nitro_enclaves/allocator.yaml
-          sudo sed -i "s/memory_mib:.*/memory_mib: 4096/" "$ALLOC"
-          sudo sed -i "s/cpu_count:.*/cpu_count: 2/"      "$ALLOC"
-          sudo systemctl enable nitro-enclaves-allocator.service || true
-          sudo systemctl reset-failed nitro-enclaves-allocator.service || true
-          sudo systemctl restart nitro-enclaves-allocator.service
-          sudo systemctl is-active nitro-enclaves-allocator.service
           REMOTE
           rm -f /tmp/deploy_key
 
@@ -199,10 +154,10 @@ jobs:
           set -e
           sudo nitro-cli run-enclave \
             --cpu-count 2 \
-            --memory 4096 \
+            --memory 2048 \
             --eif-path ~/pinaivu-relayer/out/chat-relayer.eif
           sudo nitro-cli describe-enclaves \
-            | jq -r '.[] | select(.EnclaveName == "chat-relayer") | "CID: \(.EnclaveCID)  State: \(.State)"'
+            | jq -r '.[] | select(.EIFPath | test("chat-relayer")) | "CID: \(.EnclaveCID)  State: \(.State)"'
           REMOTE
           rm -f /tmp/deploy_key
 
@@ -236,7 +191,7 @@ jobs:
           }
 
           CID=$(sudo nitro-cli describe-enclaves \
-            | jq -r '.[] | select(.EnclaveName == "chat-relayer") | .EnclaveCID' | head -1)
+            | jq -r '.[] | select(.EIFPath | test("chat-relayer")) | .EnclaveCID' | head -1)
           [ -z "$CID" ] && { echo "ERROR: no relayer enclave CID"; exit 1; }
 
           write_unit /etc/systemd/system/pinaivu-relayer-bridge-http.service \
@@ -268,6 +223,7 @@ jobs:
             [embedding]="8104:${EMBEDDING_API_BASE:-}"
             [walrus-pub]="8105:${WALRUS_PUBLISHER_URL:-}"
             [walrus-agg]="8106:${WALRUS_AGGREGATOR_URL:-}"
+            [pinaivu-api]="8107:${PINAIVU_API_BASE:-}"
           )
           for name in "${!egress[@]}"; do
             entry="${egress[$name]}"
@@ -281,28 +237,6 @@ jobs:
               'Restart=always' 'RestartSec=2' '[Install]' 'WantedBy=multi-user.target'
           done
 
-          # pinaivu-api is handled separately from the generic egress loop:
-          # PINAIVU_API_BASE is often a bare IP (no real DNS name for the
-          # gateway yet), and the enclave's /etc/hosts redirect trick only
-          # intercepts hostname lookups — connecting by IP literal skips
-          # DNS entirely and has no route inside the enclave. So the app
-          # connects to a friendly synthetic hostname (PINAIVU_API_BASE),
-          # while this bridge dials the real target from a dedicated
-          # PINAIVU_API_BRIDGE_HOST/PORT pair (same pattern as
-          # POSTGRES_BRIDGE_HOST/REDIS_BRIDGE_HOST).
-          API_HOST="${PINAIVU_API_BRIDGE_HOST:-}"
-          API_PORT="${PINAIVU_API_BRIDGE_PORT:-4001}"
-          if [ -z "$API_HOST" ] && [ -n "${PINAIVU_API_BASE:-}" ]; then
-            API_HOST=$(url_host "$PINAIVU_API_BASE")
-            API_PORT=$(url_port "$PINAIVU_API_BASE")
-          fi
-          if [ -n "$API_HOST" ]; then
-            write_unit /etc/systemd/system/pinaivu-relayer-outbound-pinaivu-api.service \
-              '[Unit]' "Description=Relayer outbound pinaivu-api (VSOCK:8107 -> ${API_HOST}:${API_PORT})" 'After=network.target' \
-              '[Service]' "ExecStart=/usr/bin/socat VSOCK-LISTEN:8107,fork,reuseaddr TCP4:${API_HOST}:${API_PORT}" \
-              'Restart=always' 'RestartSec=2' '[Install]' 'WantedBy=multi-user.target'
-          fi
-
           sudo systemctl stop pinaivu-relayer-logs.service 2>/dev/null || true
           sudo truncate -s 0 /tmp/chat-relayer.log 2>/dev/null || true
 
@@ -312,7 +246,6 @@ jobs:
             pinaivu-relayer-logs.service \
             pinaivu-relayer-outbound-postgres.service \
             pinaivu-relayer-outbound-redis.service \
-            $([ -n "$API_HOST" ] && echo "pinaivu-relayer-outbound-pinaivu-api.service") \
             $(for name in "${!egress[@]}"; do [ -n "${egress[$name]#*:}" ] && echo "pinaivu-relayer-outbound-${name}.service"; done)
 
           sleep 2
@@ -333,7 +266,7 @@ jobs:
           $SSH 'bash -s' << 'REMOTE'
           set -e
           CID=$(sudo nitro-cli describe-enclaves \
-            | jq -r '.[] | select(.EnclaveName == "chat-relayer") | .EnclaveCID' | head -1)
+            | jq -r '.[] | select(.EIFPath | test("chat-relayer")) | .EnclaveCID' | head -1)
           if [ -z "$CID" ]; then echo "ERROR: relayer enclave not running"; exit 1; fi
 
           for i in $(seq 1 10); do
