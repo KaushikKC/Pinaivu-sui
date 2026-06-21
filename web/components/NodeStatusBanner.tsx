@@ -54,21 +54,15 @@ export function NodeStatusBanner() {
             <p className="text-[13px] leading-snug text-amber-200">
               <span className="font-medium">No GPU node is connected.</span>{' '}
               There&apos;s no node serving inference right now, so messages can&apos;t
-              be answered. Start a Pinaivu node and connect it to the coordinator:
+              be answered. Start a Pinaivu node and connect it to the coordinator.
             </p>
-          )}
-
-          {!offline && (
-            <code className="mt-1.5 block text-[11px] font-mono text-amber-100/90 bg-amber-500/10 rounded-md px-2.5 py-1.5 overflow-x-auto whitespace-pre">
-              cargo run -- --coordinator-http $PINAIVU_API_URL --model &lt;model&gt; --payout-address &lt;sui-address&gt;
-            </code>
           )}
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
           {!offline && (
             <a
-              href="https://docs.pinaivu.com/quickstart"
+              href="https://docs.pinaivu.com/guides/testnet-node"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[12px] font-medium text-amber-300 hover:text-amber-200 underline underline-offset-2 whitespace-nowrap"
