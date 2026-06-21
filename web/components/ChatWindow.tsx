@@ -10,6 +10,7 @@ import {
 import { ArrowUp, Square } from 'lucide-react';
 import clsx from 'clsx';
 import { MessageBubble } from './MessageBubble';
+import { NodeStatusBanner } from './NodeStatusBanner';
 import { useStream } from '@/lib/hooks/useStream';
 import { getSession, type SessionRecord } from '@/lib/session-store';
 
@@ -76,6 +77,9 @@ export function ChatWindow({ sessionId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Warns when no GPU node is connected / backend is down */}
+      <NodeStatusBanner />
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         {isEmpty && <EmptyState onSuggestion={text => { setInput(text); textareaRef.current?.focus(); }} />}
