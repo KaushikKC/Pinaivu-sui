@@ -4,6 +4,39 @@
 
 Pinaivu is an open protocol for private, verifiable, and censorship-resistant AI inference. GPU node operators compete in a real-time marketplace to serve requests. Every response is cryptographically signed by a coordinator running inside an AWS Nitro Enclave, and settlements are executed on-chain via Sui Move smart contracts — so users can verify exactly which node served their query and how much was paid, without trusting any single party.
 
+Users sign in with **Sui zkLogin** (no seed phrase — authenticate with an existing OAuth identity and get a Sui address derived via zero-knowledge proof), chat through a ChatGPT-style interface, and can inspect the cryptographic receipt and on-chain settlement for every single message.
+
+## Links
+
+| | URL |
+|---|---|
+| **Demo video** | https://youtu.be/dAdz3VrSmw4 |
+| **Web (chat)** | https://chat.pinaivu.com/ |
+| **Explorer** | https://explorer.pinaivu.com/ |
+| **Developer dashboard** | https://dashboard.pinaivu.com/ |
+| **Docs** | https://docs.pinaivu.com/ |
+
+- **Chat** — the end-user app. Sign in with zkLogin and run private, verifiable inference through a familiar chat UI.
+- **Explorer** — a public, on-chain explorer for every inference: browse routing receipts, the serving node, output hashes, and the Sui settlement transaction.
+- **Dashboard** — the developer console. Create API keys, view usage analytics, and integrate Pinaivu's OpenAI-compatible API into your own apps.
+- **Docs** — protocol architecture, API reference, and integration guides.
+
+## Demo video
+
+[Watch the demo](https://youtu.be/dAdz3VrSmw4)
+
+| Time | Chapter |
+|------|---------|
+| [0:00](https://youtu.be/dAdz3VrSmw4?t=0) | Intro |
+| [0:17](https://youtu.be/dAdz3VrSmw4?t=17) | zkLogin |
+| [0:34](https://youtu.be/dAdz3VrSmw4?t=34) | Running a node |
+| [0:50](https://youtu.be/dAdz3VrSmw4?t=50) | Running the prompt |
+| [1:52](https://youtu.be/dAdz3VrSmw4?t=112) | Inference receipt |
+| [2:16](https://youtu.be/dAdz3VrSmw4?t=136) | Storing in Walrus |
+| [2:45](https://youtu.be/dAdz3VrSmw4?t=165) | Explorer for inference |
+| [3:02](https://youtu.be/dAdz3VrSmw4?t=182) | Developer dashboard |
+| [3:50](https://youtu.be/dAdz3VrSmw4?t=230) | Outro |
+
 ## Architecture
 
 ```
@@ -42,6 +75,7 @@ Pinaivu is an open protocol for private, verifiable, and censorship-resistant AI
 
 ## How it works
 
+0. **User signs in with zkLogin** — an OAuth login is converted into a Sui address via a zero-knowledge proof, so there is no seed phrase to manage and the user can settle on-chain from their first message.
 1. **User sends a prompt** through the web UI or API.
 2. **Coordinator broadcasts an auction** over a libp2p gossipsub mesh to all connected GPU nodes.
 3. **Nodes bid** with their price, latency, and reputation score.
@@ -67,6 +101,7 @@ Every step is verifiable: the receipt is stored on-chain, archived to Walrus, an
 
 ## Key features
 
+- **Seedless onboarding (zkLogin)** — users sign in with an existing OAuth identity and receive a Sui address derived via zero-knowledge proof. No seed phrase, no browser extension — yet every action is a real, self-custodied on-chain transaction.
 - **Private inference** — prompts are encrypted end-to-end. The coordinator runs inside an AWS Nitro Enclave with attestation; even the operator cannot see user data.
 - **Verifiable receipts** — every inference produces an Ed25519-signed routing receipt with the output hash, serving node, and payout details. Verifiable offline against the enclave attestation document.
 - **On-chain settlement** — Sui Move contracts hold a treasury vault. The coordinator submits `vault::settle` transactions that pay nodes in SUI, authenticated by the receipt signature. No trusted intermediary.
