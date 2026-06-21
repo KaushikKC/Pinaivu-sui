@@ -10,7 +10,7 @@ export type NodeStatus = 'loading' | 'online' | 'no-nodes' | 'offline' | 'demo';
  */
 export function useNodeStatus(pollMs = 20000) {
   const [status, setStatus] = useState<NodeStatus>('loading');
-  const [models, setModels] = useState(0);
+  const [nodes, setNodes] = useState(0);
   const activeRef = useRef(true);
 
   const check = useCallback(async () => {
@@ -19,7 +19,7 @@ export function useNodeStatus(pollMs = 20000) {
       const data = await res.json();
       if (!activeRef.current) return;
       setStatus((data.status as NodeStatus) ?? 'offline');
-      setModels(typeof data.models === 'number' ? data.models : 0);
+      setNodes(typeof data.nodes === 'number' ? data.nodes : 0);
     } catch {
       if (activeRef.current) setStatus('offline');
     }
@@ -35,5 +35,5 @@ export function useNodeStatus(pollMs = 20000) {
     };
   }, [check, pollMs]);
 
-  return { status, models, refresh: check };
+  return { status, nodes, refresh: check };
 }
